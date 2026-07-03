@@ -621,21 +621,21 @@ def resolve_turn(state: GameState, action: Action | None, balance: BalanceConfig
             new_id = f"{a_side}e{ns.round}{'abcde'[summon_idx]}"
             summon_idx += 1
             hp = c.hp or 40
-            # Starting gear: functional worn armor if the summon carries a rating,
-            # else a plain named trinket.
-            if c.armor:
-                start_items = [Item(name=c.item or "armor", kind="armor", armor=c.armor)]
-            elif c.item:
-                start_items = [Item(name=c.item, kind="gear")]
-            else:
-                start_items = []
+            # `item` names the unit's WIELDED WEAPON (its power/element are the
+            # weapon's stats) — so "a soldier with a sniper rifle" wields a real,
+            # named rifle, not a useless trinket. `armor` spawns functional worn
+            # armor (named by its material tier).
+            weapon = Weapon(name=c.item or "fists", element=c.element, power=c.power or 4)
+            start_items = (
+                [Item(name=_armor_name(c.armor), kind="armor", armor=c.armor)] if c.armor else []
+            )
             new_unit = Unit(
                 id=new_id,
                 name=c.name or "Summon",
                 kind="entity",
                 hp=hp,
                 max_hp=hp,
-                weapon=Weapon(element=c.element, power=c.power or 4),
+                weapon=weapon,
                 tags=list(c.tags or []),
                 items=start_items,
             )
@@ -828,6 +828,20 @@ _DOT_LABELS = {
 
 def _dot_label(element: Element) -> str:
     return _DOT_LABELS.get(element, "bleed")
+
+
+def _armor_name(rating: int) -> str:
+    """A material name for a summon's worn-armor rating (its exact name isn't
+    carried separately — `item` names the wielded weapon)."""
+    if rating >= 7:
+        return "netherite armor"
+    if rating >= 6:
+        return "diamond armor"
+    if rating >= 5:
+        return "steel plate"
+    if rating >= 3:
+        return "iron armor"
+    return "leather armor"
 
 
 def _stat_label(stat, magnitude: int) -> str:

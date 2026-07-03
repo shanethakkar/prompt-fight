@@ -35,6 +35,7 @@
     {"prompt": "I strap heavy iron plate armor onto myself", "contains": ["item"], "checks": [{"type": "item", "armor": [3, 6]}]},
     {"prompt": "I pull on a worn leather jerkin", "contains": ["item"], "checks": [{"type": "item", "armor": [1, 3]}]},
     {"prompt": "I summon a knight clad in a full suit of diamond armor", "contains": ["summon"], "checks": [{"type": "summon", "armor": [4, 8]}]},
+    {"prompt": "I summon a soldier armed with a high-powered sniper rifle", "contains": ["summon"], "checks": [{"type": "summon", "power": [6, 8]}]},
 
     {"prompt": "I raise a sturdy shield to block the blow", "contains": ["defense"], "checks": [{"type": "defense", "target": "self"}]},
     {"prompt": "I nimbly dodge to the side", "contains": ["defense"], "checks": [{"type": "defense", "target": "self"}]},

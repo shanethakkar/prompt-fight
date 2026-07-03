@@ -701,18 +701,23 @@ def test_summon_stages_an_entity():
     assert any(e.kind == "summon" for e in r.events)
 
 
-def test_summon_starting_item_is_structured():
+def test_summon_wields_its_named_weapon():
+    # A named weapon becomes the unit's real weapon (functional), not a trinket.
     r = turn(
         state(active="p1"),
-        action({"type": "summon", "name": "Knight", "hp": 40, "power": 5, "item": "shield"}),
+        action(
+            {"type": "summon", "name": "Soldier", "hp": 25, "power": 7, "item": "sniper rifle"}
+        ),
     )
-    items = r.state.p1.entities[0].items
-    assert len(items) == 1 and items[0].name == "shield" and items[0].kind == "gear"
+    ent = r.state.p1.entities[0]
+    assert ent.weapon.name == "sniper rifle" and ent.weapon.power == 7
+    assert ent.items == []  # not dumped into a useless trinket slot
 
 
 def test_summon_spawns_functional_armor():
     from app.rules import damage_taken_mult
 
+    # `item` is the wielded weapon; `armor` is the functional worn armor.
     r = turn(
         state(active="p1"),
         action(
@@ -722,13 +727,14 @@ def test_summon_spawns_functional_armor():
                 "hp": 40,
                 "power": 5,
                 "armor": 6,
-                "item": "diamond armor",
+                "item": "longsword",
             }
         ),
     )
     ent = r.state.p1.entities[0]
-    it = ent.items[0]
-    assert it.kind == "armor" and it.armor == 6 and it.name == "diamond armor"
+    assert ent.weapon.name == "longsword"  # wielded weapon, named
+    it = next(i for i in ent.items if i.kind == "armor")
+    assert it.armor == 6 and it.name == "diamond armor"  # functional, material-named
     assert damage_taken_mult(ent, BAL) == pytest.approx(0.4)  # 60% less: real protection
 
 

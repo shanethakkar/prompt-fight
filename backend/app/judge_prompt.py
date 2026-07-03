@@ -82,15 +82,17 @@ target self. Set `hp` STRICTLY BY SIZE — small/mundane things are FRAGILE and 
 only huge/legendary things are tough: rat/imp/bat/insect ~8; dog/goblin/skeleton/ \
 snake ~15; wolf/archer/soldier/thug ~25; orc/knight/bear ~35; ogre/troll/golem ~50; \
 dragon/giant/demon/god/titan ~70. A common animal or minion is NOT a tank — a dog is \
-~15, not 40. Set `name` and `power`+`element` = its ASSUMED WEAPON from what it IS \
-(rat/dog teeth ~2-3, archer arrows ~5, knight sword ~5, mage fire ~6, dragon fire ~8, \
-god ~8). Optional `tags` (e.g. ["undead"], ["flying"]). To spawn it already WEARING \
-armor, set `armor` (the material rating, same scale as an armor item — leather ~2, \
-iron ~4, plate ~5, diamond ~6, netherite ~8) and `item` = the armor's name; this gives \
-the new unit REAL functional armor (do NOT use a separate `item` component — the unit \
-doesn't exist yet). For non-protective flavor gear, just set `item` (a name). A summon \
-takes your WHOLE turn — you CANNOT summon and attack in the same command; the new unit \
-acts on your NEXT turn.
+~15, not 40. WHATEVER the unit is described as WIELDING is its real weapon: set \
+`power`+`element` to that WEAPON's stats and `item` = the weapon's NAME (a soldier with \
+a SNIPER RIFLE → power 7 physical item "sniper rifle"; an orc with a FLAMING GREATAXE → \
+power 7 fire item "flaming greataxe"; a mage → power 6 fire item "staff"). Default power \
+by what it IS if no weapon is named (rat/dog teeth ~2-3, archer bow ~5, knight sword ~5, \
+dragon fire ~8, god ~8). To spawn it already WEARING armor, ALSO set `armor` (the \
+material rating — leather ~2, iron ~4, plate ~5, diamond ~6, netherite ~8) — REAL \
+functional worn armor (do NOT put the armor's name in `item`; `item` is the weapon). \
+Optional `tags` (e.g. ["undead"], ["flying"]). A summon takes your WHOLE turn — you \
+CANNOT summon and attack in the same command (and can't target the new unit with a \
+separate item — it doesn't exist yet); the new unit acts on your NEXT turn.
 - item — equip ONE of YOUR units with a WEAPON, worn ARMOR, or a TRINKET. target self; \
 set `target_id` (default your stickman) and `name`. \
   • WEAPON: add `element`+`power` — it (re)arms that unit (a flaming sword makes its \
@@ -210,11 +212,13 @@ self], "A swig and a braced shield."
 template aoe_burst, "Space buckles into a black hole."
 "I summon a fierce orc wielding a battle axe" -> [summon name "Orc" hp 45 power 6 \
 physical item "battle axe" tags ["orc"]], "An orc lumbers onto the field, axe raised."
-"I summon a knight clad in a full suit of diamond armor" -> [summon name "Knight" hp 35 \
-power 5 physical armor 6 item "diamond armor" tags ["knight"]], "A diamond-clad knight \
-strides forth."
+"I summon a soldier armed with a sniper rifle" -> [summon name "Soldier" hp 25 power 7 \
+physical item "sniper rifle" tags ["human"]], "A soldier drops prone, scope raised."
+"I summon a knight with a longsword and a suit of diamond armor" -> [summon name "Knight" \
+hp 35 power 5 physical armor 6 item "longsword" tags ["knight"]], "A diamond-clad knight \
+draws his blade."
 "I raise a skeleton archer to fight for me" -> [summon name "Skeleton Archer" hp 25 \
-power 5 physical tags ["undead"]], "Bones clatter up, bow drawn."
+power 5 physical item "bow" tags ["undead"]], "Bones clatter up, bow drawn."
 "I give my orc a mighty flaming greatsword" (orc = p1e1a) -> [item target_id p1e1a \
 name "flaming greatsword" element fire power 7], "The orc hefts a blazing greatsword."
 "I forge kryptonite armor for myself" -> [item name "kryptonite armor" tags \
@@ -312,7 +316,11 @@ _COMPONENT_SCHEMA: dict = {
             "maxItems": 4,
             "description": "summon only: descriptors, e.g. ['undead','flying'].",
         },
-        "item": {"type": "string", "description": "summon only: a starting weapon/armor."},
+        "item": {
+            "type": "string",
+            "description": "summon only: the WIELDED WEAPON's name (power/element are its "
+            "stats). Worn armor is a separate `armor` rating, not this field.",
+        },
         "armor": {
             "type": "integer",
             "minimum": 1,
