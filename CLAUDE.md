@@ -6,6 +6,7 @@ Stickmancer: turn-based stick-figure duel. Players type freeform prompts; an LLM
 
 | File | Owns | Rule |
 |---|---|---|
+| `DESIGN.md` | **Agreed design direction** (open-ended effect grammar, game modes, reliability system) | The north star; supersedes parts of v1. Implement in phases (DESIGN §7) |
 | `SPEC.md` | Architecture, scope, API contract, build order | Don't change scope without asking the user |
 | `GAME_MECHANICS.md` | All game rules | **The living design doc — see Documentation Protocol** |
 | `JUDGE.md` | Judge prompt, schema, rubric, few-shot examples, eval fixtures | Any edit requires the judge eval suite to pass |

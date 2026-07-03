@@ -2,7 +2,9 @@
 
 A turn-based stick-figure duel where players type freeform attack prompts. An LLM "judge" parses each prompt into structured game data; deterministic code renders, animates, and resolves everything else.
 
-> **Source-of-truth map:** Game rules live in `GAME_MECHANICS.md`. Judge behavior lives in `JUDGE.md`. All tunable numbers live in `config/balance.json`. This file covers architecture, scope, and build order only. If documents conflict, `GAME_MECHANICS.md` wins for rules and `config/balance.json` wins for numbers.
+> **⚠️ Direction change (2026-07-02):** `DESIGN.md` supersedes parts of this file — the game is moving from a closed 5-category set to an **open-ended generic effect grammar** with two **modes** (competitive / sandbox) and a **reliability (miss/fizzle) system**. §1 non-goals below (single-effect, no minions, no status stacking) are being revised; §10 milestones are re-sequenced per DESIGN.md §7. This file still describes the implemented M0–M2 engine until each phase lands.
+
+> **Source-of-truth map:** Overall design direction lives in `DESIGN.md`. Game rules live in `GAME_MECHANICS.md`. Judge behavior lives in `JUDGE.md`. All tunable numbers live in `config/balance.json`. This file covers architecture, scope, and build order only. If documents conflict, `GAME_MECHANICS.md` wins for rules and `config/balance.json` wins for numbers.
 
 ---
 

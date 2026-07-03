@@ -12,6 +12,8 @@
 
 ## DECISIONS (running log of nontrivial choices made during implementation)
 
+- 2026-07-02 — **Major direction change:** move from the closed 5-category set to an open-ended **generic effect grammar** (flavor infinite, mechanics = a small set of composable dimensions the LLM projects prompts onto), plus two **modes** (competitive / sandbox) and a **reliability (miss/fizzle→partial→full→overload, backfire on overreach) system** driven mostly by counterplay with informed odds shown pre-Confirm and seeded RNG for replay. Full design in [[DESIGN.md]]; phased rollout in DESIGN §7. Comeback/rubber-band knob deferred. Supersedes SPEC §1 non-goals + GAME_MECHANICS §3/§11.
+
 - 2026-07-01 — Mana cost computed server-side from judge's power/category (LLM never sets costs) — consistency + anti-fishing.
 - 2026-07-01 — Resolver is a server-side pure function even in local-only v1, to make v2 online migration trivial.
 - 2026-07-01 — Defense actions resolve in a priority tier before speed ordering (shields are up for the whole turn).
@@ -29,6 +31,11 @@
 - (Renderer choice SVG vs. Canvas: record here when made in M4.)
 
 ---
+
+## 2026-07-02 — Design direction documented (DESIGN.md)
+- Done: Captured the agreed pivot to open-ended effects. New `DESIGN.md` covers the vision (player imagination is the limit), the generic effect grammar (§3), two modes (§4), the reliability system (§5), what's reused vs. reworked from M0–M2 (§6), a phased rollout P1–P4 (§7), and open decisions (§8). Cross-linked from CLAUDE.md source-of-truth map; direction-change notes added to SPEC.md and GAME_MECHANICS.md headers.
+- Files: DESIGN.md (new), CLAUDE.md, SPEC.md, GAME_MECHANICS.md, PROGRESS.md.
+- Follow-ups: No code yet. Next: pick the starting phase (recommend P1 — modes + reliability on the current engine) and plan it. Existing M0–M2 code is untouched and still green.
 
 ## 2026-07-02 — M2 judge + API endpoints
 - Done: The game's only AI component. Moderation pre-filter (`moderation.py`, conservative regex + optional model check). LLM judge (`judge.py` + `judge_prompt.py`): forced `emit_action` tool-use vs Claude Haiku at temp 0, subtype→category reconciliation, retry-once-then-sputter. API models (`schemas.py`) + endpoints (`main.py`): `POST /api/judge` (moderate → judge → server cost via `rules.mana_cost` → affordable/on_cooldown/rewrites) and `POST /api/resolve` (thin wrapper over M1 resolver). Eval suite: `fixtures/judge_eval.json` (30 fixtures across all §7 buckets incl. buff/debuff stat) + `test_judge_eval.py` (`@pytest.mark.live`). Offline tests: `test_moderation.py`, `test_api.py` (judge mocked).

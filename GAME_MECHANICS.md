@@ -2,6 +2,8 @@
 
 > **This file is the single source of truth for game rules.** Per `CLAUDE.md`, any change to a mechanic — in code, judge prompt, or config — must be reflected here in the same commit. Numbers shown below are the current values in `config/balance.json`; that file wins if they drift.
 
+> **⚠️ Redesign in progress (2026-07-02):** `DESIGN.md` is the agreed direction — an open-ended **generic effect grammar** (bundled components, not one of 5 categories), two **modes** (competitive / sandbox), and a **reliability (miss/fizzle) system**. The rules below describe the **currently implemented** engine; they are revised phase-by-phase per DESIGN §7. In particular §3 (closed categories / single-effect) and §11 (out-of-scope: minions, status stacking) are superseded by that direction.
+
 ## 1. Match structure
 
 - Two players, local hot-seat (one device, pass-and-play with hidden-input handoff screens).
