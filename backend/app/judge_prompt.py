@@ -81,6 +81,11 @@ physical arrows ~5, knight = physical sword ~5, mage = fire ~6, dragon = fire ~8
 skeleton = physical ~3). Optional `tags` (e.g. ["undead"], ["flying"]) and `item` (a \
 weapon/armor it spawns holding). A summon takes your WHOLE turn — you CANNOT summon \
 and attack in the same command; the new unit acts on your NEXT turn.
+- item — equip ONE of YOUR existing units with gear. target self; set `target_id` to \
+the unit (default your stickman) and `name`. For a WEAPON add `element`+`power` (it \
+(re)arms that unit — a flaming sword makes its attacks fire). For armor/a trinket add \
+`tags` (e.g. ["kryptonite"] for kryptonite armor). Use for "give my orc a battle axe", \
+"equip a kryptonite blade", "put on enchanted armor".
 
 CHOOSING dot VS stat: if the prompt describes ongoing HP loss ("bleed", "burn", \
 "poison courses through them"), use `dot`. If it describes making them WEAKER or \
@@ -157,6 +162,10 @@ template aoe_burst, "Space buckles into a black hole."
 physical item "battle axe" tags ["orc"]], "An orc lumbers onto the field, axe raised."
 "I raise a skeleton archer to fight for me" -> [summon name "Skeleton Archer" hp 25 \
 power 5 physical tags ["undead"]], "Bones clatter up, bow drawn."
+"I give my orc a mighty flaming greatsword" (orc = p1e1a) -> [item target_id p1e1a \
+name "flaming greatsword" element fire power 7], "The orc hefts a blazing greatsword."
+"I forge kryptonite armor for myself" -> [item name "kryptonite armor" tags \
+["kryptonite"] target_id p1s], "Green-glowing plates lock into place."
 "My orc charges their wizard" (orc = your unit p1e2a, wizard = enemy p2e1b) -> \
 [damage source_id p1e2a target_id p2e1b], "The orc barrels into the wizard."
 "asdfjkl banana" -> [damage physical power 1], "A confused flail hits nothing."

@@ -55,6 +55,7 @@ class ComponentWeights(BaseModel):
     barrier: float
     control: float
     summon: float
+    item: float
 
 
 class KindCooldowns(BaseModel):

@@ -12,7 +12,8 @@ export type ComponentType =
   | "defense"
   | "barrier"
   | "control"
-  | "summon";
+  | "summon"
+  | "item";
 
 export type ComponentTarget = "self" | "opponent";
 

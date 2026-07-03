@@ -77,6 +77,8 @@ export function describeComponent(c: EffectComponent): string {
       return `Stun · ${c.duration}t`;
     case "summon":
       return `Summon ${c.name ?? "unit"} · ${c.hp}hp · ${c.element} ${c.power}`;
+    case "item":
+      return c.power ? `Equip ${c.name} (${c.element} ${c.power})` : `Equip ${c.name}`;
     default:
       return c.type;
   }
@@ -136,6 +138,11 @@ export function narrateResult(e: ResolutionEvent, names: Record<Side, string>): 
   }
   if (e.kind === "removed") {
     return `${target} falls!`;
+  }
+  if (e.kind === "item") {
+    const gear = eff?.label ?? "gear";
+    const on = e.target_name && e.target_name !== actor ? ` on ${e.target_name}` : "";
+    return `${actor} equips ${gear}${on}.`;
   }
 
   // Over-time ticks fire at the start of the afflicted's turn.

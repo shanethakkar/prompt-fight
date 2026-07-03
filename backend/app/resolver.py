@@ -493,6 +493,19 @@ def resolve_turn(state: GameState, action: Action | None, balance: BalanceConfig
             ev_target_id, ev_target_name = new_unit.id, new_unit.name
             summary = EffectSummary(kind="summon", label=new_unit.name)
 
+        elif c.type is ComponentType.item:
+            # Equip the target unit: record the item + its tags, and (re)arm it if
+            # the item is a weapon. Applies immediately (gear, not a timed effect).
+            name = c.name or "item"
+            if name not in target_unit.items:
+                target_unit.items.append(name)
+            for tag in c.tags or []:
+                if tag not in target_unit.tags:
+                    target_unit.tags.append(tag)
+            if c.power:
+                target_unit.weapon = Weapon(name=name, element=c.element, power=c.power)
+            summary = EffectSummary(kind="item", label=name)
+
         events.append(
             ResolutionEvent(
                 actor=a_side,

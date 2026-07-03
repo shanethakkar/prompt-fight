@@ -188,6 +188,19 @@ def normalize_components(
                 tags=tags,
                 item=str(item_name)[:24] if isinstance(item_name, str) else None,
             )
+        elif ctype is ComponentType.item:
+            raw_tags = item.get("tags")
+            tags = [str(t)[:20] for t in raw_tags][:4] if isinstance(raw_tags, list) else []
+            # A weapon-item carries a `power`; a trinket/armor item just carries tags.
+            wpn = _clamp(_int(item.get("power"), 0), 0, pmax) if "power" in item else 0
+            comp = EffectComponent(
+                type=ctype,
+                target=ComponentTarget.caster,
+                element=element,
+                power=wpn or None,
+                name=str(item.get("name") or "item")[:24],
+                tags=tags,
+            )
 
         if comp is None:
             continue
@@ -258,6 +271,9 @@ def component_weight(c: EffectComponent, balance: BalanceConfig) -> float:
     if c.type is ComponentType.summon:
         # A summon's price scales with the body it puts on the board (hp + weapon).
         return ((c.hp or 0) / 10 + (c.power or 0)) * w.summon
+    if c.type is ComponentType.item:
+        # Cheap utility; a weapon-item costs a touch more than a trinket.
+        return (2 + (c.power or 0)) * w.item
     return 0.0
 
 

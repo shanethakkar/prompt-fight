@@ -39,6 +39,7 @@ class ComponentType(StrEnum):
     barrier = "barrier"  # a durability pool that absorbs damage until it shatters
     control = "control"  # stun: the target skips their turn(s)
     summon = "summon"  # bring a new entity onto your side (staged, acts next turn)
+    item = "item"  # equip one of your units with gear (a weapon and/or tags)
 
 
 class ComponentTarget(StrEnum):
@@ -127,6 +128,7 @@ COMPONENT_TEMPLATE: dict[ComponentType, Template] = {
     ComponentType.barrier: Template.shield_raise,
     ComponentType.control: Template.debuff_cloud,
     ComponentType.summon: Template.buff_aura,
+    ComponentType.item: Template.buff_aura,
 }
 
 DEFENSE_TEMPLATE: dict[DefenseSubtype, Template] = {

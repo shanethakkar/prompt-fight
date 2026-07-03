@@ -21,18 +21,21 @@ function Chips({ chips }: { chips: Chip[] }) {
   );
 }
 
+/** Weapon · tags · items, for the roster (empty string if the unit has no gear). */
+function gearText(unit: Unit): string {
+  const parts: string[] = [];
+  if (unit.weapon) parts.push(`${capitalize(unit.weapon.element)} ${unit.weapon.power}`);
+  parts.push(...unit.tags, ...unit.items);
+  return parts.join(" · ");
+}
+
 /** One entity row in the roster: name + kit, an HP bar scaled to its own max, and chips. */
 function EntityRow({ unit }: { unit: Unit }) {
-  const kit = unit.weapon ? `${capitalize(unit.weapon.element)} ${unit.weapon.power}` : "";
-  const tags = unit.tags.length ? ` · ${unit.tags.join(", ")}` : "";
   return (
     <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-2">
       <div className="flex justify-between text-xs">
         <span className="font-medium text-zinc-200">{unit.name}</span>
-        <span className="text-zinc-500">
-          {kit}
-          {tags}
-        </span>
+        <span className="text-zinc-500">{gearText(unit)}</span>
       </div>
       <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-zinc-800">
         <div
@@ -92,6 +95,9 @@ export function PlayerStatus({
       <div className="font-semibold">{player.name}</div>
       <Bar label="HP" value={player.stickman.hp} max={config.hp_max} color="bg-emerald-500" />
       <Bar label="Mana" value={player.mana} max={config.mana_max} color="bg-sky-500" />
+      {gearText(player.stickman) && (
+        <div className="text-[10px] text-zinc-500">🛡 {gearText(player.stickman)}</div>
+      )}
       <Chips chips={statusChips(player.stickman, player.cooldowns)} />
       {player.entities.length > 0 && (
         <div className="mt-1 flex flex-col gap-1.5">

@@ -742,3 +742,40 @@ def test_combo_two_units_both_hit_one_target():
     dmgs = [e for e in r.events if e.kind == "damage"]
     assert len(dmgs) == 2 and {e.actor_name for e in dmgs} == {"P1", "Orc"}
     assert r.state.p2.stickman.hp == 100 - 18 - 15  # stickman 6*3 + orc weapon 5*3
+
+
+def test_item_arms_a_unit_with_a_weapon():
+    st = state(active="p1")
+    st.p1.entities = [orc(id="p1e1a", power=5)]  # physical 5 -> fire 7 after equip
+    roster = build_roster(st, "p1")
+    comps = normalize_components(
+        [
+            {
+                "type": "item",
+                "name": "flaming sword",
+                "element": "fire",
+                "power": 7,
+                "target_id": "p1e1a",
+            }
+        ],
+        BAL,
+        roster,
+    )
+    r = turn(st, Action(components=comps, element=Element("physical"), speed=5, flavor_text="arm"))
+    o = r.state.p1.entities[0]
+    assert o.weapon.element is Element.fire and o.weapon.power == 7 and "flaming sword" in o.items
+
+
+def test_item_trinket_adds_tags_only():
+    st = state(active="p1")
+    roster = build_roster(st, "p1")
+    comps = normalize_components(
+        [{"type": "item", "name": "kryptonite armor", "tags": ["kryptonite"], "target_id": "p1s"}],
+        BAL,
+        roster,
+    )
+    r = turn(
+        st, Action(components=comps, element=Element("physical"), speed=5, flavor_text="armor")
+    )
+    sm = r.state.p1.stickman
+    assert "kryptonite" in sm.tags and "kryptonite armor" in sm.items and sm.weapon is None

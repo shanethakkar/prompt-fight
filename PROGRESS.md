@@ -37,6 +37,12 @@
 
 ---
 
+## 2026-07-03 — P3.2: items / equipment (give the orc an axe)
+- Done: New `item` component equips an existing unit (`target_id`, default your stickman). A **weapon-item** (has `power`) (re)arms the unit — a flaming sword makes its attacks fire; an **armor/trinket** (tags only) adds descriptors (kryptonite armor) that P3.3 matchups will read. Applies immediately (gear, not a timed effect); recorded on `unit.items`/`unit.tags`/`unit.weapon`. Priced cheap (`component_weights.item` 0.5; a weapon-item a touch more than a trinket). Judge taught to equip ("give my orc a flaming battle axe" → item weapon on the orc; "forge kryptonite armor" → item tags on self). Frontend: the roster shows each unit's gear (weapon · tags · items), plus a 🛡 gear line on the stickman; equip narration ("Ada equips flaming greatsword on Orc").
+- Files: backend/app/{models,rules,resolver,config,judge_prompt}.py, config/balance.json, backend/tests/test_resolver.py; frontend/src/lib/{types,game}.ts, frontend/src/app/_components/PlayerStatus.tsx; GAME_MECHANICS.md (§3), JUDGE.md, PROGRESS.md.
+- Verified: `uv run pytest -m "not live"` **148 passed** + ruff clean; **live evals 42/42** + live item smoke (flaming axe → orc weapon fire 7; kryptonite armor → self tags). frontend 35 tests + typecheck/lint/build green.
+- Follow-ups: P3.3 effectiveness/kryptonite crits (tags from items/summons are now grounded state), then a combined items+crits playtest.
+
 ## 2026-07-03 — P3.1c: team-up combos (the "Harry and Hermione" case)
 - Done: A command can now coordinate up to 2 of the caster's units in one turn. `normalize_components` replaces the ≤1-damage-per-command rule with **≤1 damage per source unit** + a `max_units_per_command` (2) cap (`_enforce_combo_caps`; without a roster it collapses to the classic single-attack rule, so all prior tests hold). `max_components` 3→4; `bundle_cost` now scales the cap by participant count (`max_bundle_cost × distinct source units`) so a multi-unit alpha strike isn't a burst bargain — you bank for it. Judge taught to emit one component per acting unit with its `source_id`. No frontend change (combos already render as multiple unit-named beats).
 - Files: backend/app/{rules,config,judge_prompt}.py, config/balance.json, backend/tests/{test_rules,test_resolver,test_config}.py + fixtures/judge_eval.json, CLAUDE.md (stale anti-stacking gate), GAME_MECHANICS.md (§3 + changelog), PROGRESS.md.
