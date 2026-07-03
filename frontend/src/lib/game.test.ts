@@ -210,7 +210,16 @@ describe("narrateResult", () => {
 
 describe("statusChips", () => {
   function ps(over: Partial<PlayerState>): PlayerState {
-    return { name: "P", hp: 100, mana: 10, cooldowns: {}, effects: [], barriers: [], ...over };
+    return {
+      name: "P",
+      hp: 100,
+      mana: 10,
+      cooldowns: {},
+      effects: [],
+      barriers: [],
+      stun_immunity: 0,
+      ...over,
+    };
   }
   it("labels a power buff readably", () => {
     const chips = statusChips(ps({ effects: [eff({ stat: "power", magnitude: 5, turns_remaining: 2, label: "empowered" })] }));
@@ -242,6 +251,28 @@ describe("statusChips", () => {
       ps({ barriers: [{ pool: 18, element: "physical", source: "p1", label: "barrier" }] }),
     );
     expect(chips[0]).toEqual({ text: "Barrier 18", tone: "defense" });
+  });
+  it("labels a stun", () => {
+    const chips = statusChips(ps({ effects: [eff({ kind: "control", turns_remaining: 2 })] }));
+    expect(chips[0]).toEqual({ text: "Stunned 2t", tone: "debuff" });
+  });
+});
+
+describe("stun narration", () => {
+  it("narrates a stun landing", () => {
+    expect(
+      narrateResult(ev({ kind: "control", outcome: "applied", effect: { kind: "control", duration: 2 } }), NAMES),
+    ).toBe("Bo is stunned for 2 turns!");
+  });
+  it("narrates immunity", () => {
+    expect(narrateResult(ev({ kind: "control", outcome: "fizzled" }), NAMES)).toBe(
+      "Bo shrugs off the stun.",
+    );
+  });
+  it("narrates a skipped turn", () => {
+    expect(narrateResult(ev({ kind: "stun_skip", actor: "p2", target: "p2", outcome: "fizzled" }), NAMES)).toBe(
+      "Bo is stunned — skips the turn.",
+    );
   });
 });
 

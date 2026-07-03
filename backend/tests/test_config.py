@@ -21,6 +21,10 @@ def test_known_values() -> None:
     assert cfg.component_weights.barrier == 1.5
     assert cfg.barrier_pool_per_power == 3.0
     assert cfg.max_barriers_per_player == 2
+    assert cfg.component_weights.control == 5.0
+    assert cfg.max_control_duration == 2
+    assert cfg.stun_immunity_turns == 2
+    assert cfg.kind_cooldowns_turns.control == 2
     assert cfg.bundle_multipliers["1"] == 1.0
     assert cfg.max_components == 3
     assert cfg.kind_cooldowns_turns.heal == 3

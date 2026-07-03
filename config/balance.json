@@ -19,7 +19,8 @@
     "hot": 0.32,
     "stat": 0.42,
     "defense": 0.75,
-    "barrier": 1.5
+    "barrier": 1.5,
+    "control": 5.0
   },
   "bundle_multipliers": {
     "1": 1.0,
@@ -46,6 +47,9 @@
   "barrier_pool_per_power": 3.0,
   "max_barriers_per_player": 2,
 
+  "max_control_duration": 2,
+  "stun_immunity_turns": 2,
+
   "damage_taken_per_point": 0.1,
   "damage_taken_mult_floor": 0.25,
   "damage_taken_mult_ceil": 2.5,
@@ -55,7 +59,7 @@
   "kind_cooldowns_turns": {
     "heal": 3,
     "defense": 1,
-    "control": 1
+    "control": 2
   },
   "heavy_move_power_threshold": 8,
   "heavy_move_extra_cooldown_turns": 1,

@@ -206,6 +206,27 @@ def test_resolve_match_over():
     assert body["match_over"] is True and body["winner"] == "p1"
 
 
+def test_resolve_accepts_null_action():
+    r = client.post(
+        "/api/resolve",
+        json={"match_id": "m1", "state": initial_game_json(), "action": None},
+    )
+    assert r.status_code == 200 and r.json()["state"]["active"] == "p2"
+
+
+def test_resolve_ignores_action_while_stunned():
+    st = initial_game_json()
+    st["active"] = "p2"
+    st["p2"]["effects"] = [{"kind": "control", "turns_remaining": 1, "source": "p1"}]
+    r = client.post(
+        "/api/resolve",
+        json={"match_id": "m1", "state": st, "action": _fireball().model_dump(mode="json")},
+    )
+    body = r.json()
+    assert body["state"]["p1"]["hp"] == 100  # the submitted fireball was ignored
+    assert any(e["kind"] == "stun_skip" for e in body["events"])
+
+
 def test_resolve_bundle_multi_event():
     bundle = Action(
         components=[

@@ -59,9 +59,8 @@ COMPONENT TYPES (each component has a `type` and a `target`: "self" or "opponent
   `magnitude` is the SIGNED change to the TARGET'S stat (range about -8..+8):
      to HELP yourself  -> target self,     +power / +speed / -damage_taken (armor)
      to HURT the enemy -> target opponent, -power / -speed / +damage_taken (expose)
-  Examples: plate armor = stat damage_taken -4 self; weaken their blows = stat power \
--4 opponent; freeze/slow them = stat speed -6 opponent; berserker strength = stat \
-power +5 self.
+  Examples: weaken their blows = stat power -4 opponent; slow them down = stat speed \
+-4 opponent; berserker strength = stat power +5 self.
 - defense  — raise a REACTIVE stance for the opponent's next turn only. target self. \
 Needs `subtype` (shield | dodge | reflect), `power`, `element`. A shield absorbs, a \
 dodge evades a slower hit, a reflect bounces a weaker hit back. Use for "raise my \
@@ -70,11 +69,16 @@ shield", "dodge", "parry" — a one-time reaction.
 incoming hits across many turns until it shatters. target self. Needs `power`. Use \
 for "put on plate armor", "conjure a force field", "wrap myself in a lasting ward", \
 "a suit of armor" — durable gear, not a one-turn block.
+- control — a STUN: the opponent skips their turn(s). target opponent. Needs \
+`duration` (1-2). Use for "freeze them solid", "petrify them", "stun them", "stop \
+time", "knock them out cold", "trap them so they can't move" — total loss of a turn, \
+NOT just slowing them.
 
 CHOOSING dot VS stat: if the prompt describes ongoing HP loss ("bleed", "burn", \
 "poison courses through them"), use `dot`. If it describes making them WEAKER or \
-SLOWER (not losing HP), use `stat`. "Blind them" has no HP loss and no true accuracy \
-stat yet — approximate as a `speed` debuff on the opponent.
+SLOWER (not losing HP), use `stat`. "Blind them" has no HP loss — approximate as a \
+`speed` debuff on the opponent. If they'd be UNABLE TO ACT entirely (frozen solid, \
+petrified, knocked out), that's `control`, not a slow.
 
 CHOOSING defense VS barrier VS stat: a one-turn reactive block/dodge/parry → \
 `defense`; durable worn armor / a lasting ward that keeps soaking hits → `barrier`; \
@@ -117,8 +121,10 @@ duration 3 opponent], element nature, "Venom crawls through their veins."
 template shield_raise, "Plate clangs shut — it'll soak a beating."
 "I mark them with a hex so every blow wounds them worse" -> [stat damage_taken +4 \
 duration 3 opponent], "A hex blooms — their guard falters."
-"I freeze them solid so they can't move" -> [stat speed -6 duration 2 opponent], \
-element water, "Ice locks their limbs in place."
+"I freeze them solid so they can't move" -> [control duration 2 opponent], \
+element water, "Ice locks them rigid — they can't move a muscle."
+"I zap them and stun them for a moment" -> [damage lightning power 4] + [control \
+duration 1 opponent], "A crackling jolt leaves them reeling."
 "I blind them by throwing sand in their eyes" -> [stat speed -3 duration 2 opponent], \
 "Grit stings their eyes — they flail half-blind."
 "I chug a potion and raise my guard" -> [heal power 4 self] + [defense shield power 4 \

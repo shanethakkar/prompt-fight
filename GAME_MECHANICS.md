@@ -34,6 +34,7 @@ Flavor is infinite; the mechanical vocabulary is a small fixed set. The judge (`
 | `stat` | either | `stat`, signed `magnitude` (±8), `duration` 1–4 | Persistent stat shift. `stat` ∈ {`power`, `speed`, `damage_taken`}. |
 | `defense` | self | `subtype` (shield/dodge/reflect), `power`, `element` | A one-shot reactive stance for the opponent's next turn (§7). |
 | `barrier` | self | `power`, `element` | A **durability pool** (armor/ward/force field): `pool = power × barrier_pool_per_power` (×3) absorb points that soak incoming hits until the pool shatters. **No timer** — persists as gear until broken. Dots bypass it. |
+| `control` | opponent | `duration` 1–2 | A **stun** (freeze/petrify/knock-out): the target skips their turn(s). Dropped if the target is already stunned or briefly immune (§7). |
 
 **Three mitigation flavors, don't confuse them:** `defense` = a *one-turn* reactive block/dodge/parry (consumed by the next hit); `barrier` = *durable worn armor* that soaks many hits over many turns until it shatters; `stat(damage_taken)` = a *percentage* multiplier (a temporary "brace" `−`, or a curse/`expose` `+` that makes a target take more).
 
@@ -66,7 +67,7 @@ This is the power-scaling throttle: "I collapse a black hole onto you" is legal 
 
 ## 6. Cooldowns
 
-Cooldowns are keyed by **component kind**, and only the turtle/lock levers are throttled: `heal` (3), `defense` (1), `control` (1, reserved for A.2). `damage`, `dot`, and `stat` ride on mana alone and have **no cooldown**.
+Cooldowns are keyed by **component kind**, and only the turtle/lock levers are throttled: `heal` (3), `defense`/`barrier` (1, shared), `control` (2). `damage`, `dot`, and `stat` ride on mana alone and have **no cooldown**.
 
 - **Heavy-move rule:** a `heal`/`defense` component with power ≥ 8 adds +1 turn to that kind's cooldown.
 - A bundle whose kind is on cooldown cannot be confirmed; `/api/judge` reports `on_cooldown` = true if **any** cooldownable kind in the bundle is currently blocked.
@@ -76,9 +77,10 @@ Cooldowns are keyed by **component kind**, and only the turtle/lock levers are t
 Each turn the **active player A** acts against **opponent O**. The turn runs START → ACT → END, and **each tick and each component becomes one playback event** (a turn can emit several beats).
 
 1. **START — over-time ticks.** For each `dot` on A, deal its frozen `per_turn` (bypassing stances and armor); for each `hot` on A, heal its frozen `per_turn` (capped). **Then check KO:** if A hit 0 HP from a dot, the match ends immediately and **O (the dot's source) wins** — A never acts.
-2. **ACT — pay + apply.** Pay the aggregate mana cost (floor 0). Apply each component in order: `damage` (through the pipeline below), `heal`, `dot`/`stat`-on-opponent (land on O **immediately**), `hot`/`stat`-on-self/`defense` (**staged** — installed at END, so an "empower + strike" boosts your *next* strike, not this one). HP floors at 0.
-3. **END — upkeep (A only).** Decrement A's effect timers (use-before-decrement) and drop the expired; install A's staged self-effects (a new stance replaces the old; list capped at 6); tick A's cooldowns and apply this bundle's new cooldowns; regen A's mana (capped). O's effects/cooldowns are untouched — they tick on O's turns.
-4. **Match-over check**, then advance (P1↔P2; a P2 action closes the round and checks the round cap, §1).
+2. **Stun check.** If A is stunned (an active `control` effect), A **skips ACT entirely** — no mana, no components (a stun-skip beat is emitted). This is server-authoritative: a stunned player skips regardless of what action the client submitted (or `null`). The START ticks above still fired, so a stunned player can still be poisoned to death.
+3. **ACT — pay + apply.** Pay the aggregate mana cost (floor 0). Apply each component in order: `damage` (through the pipeline below), `heal`, `dot`/`stat`-on-opponent/`control` (land on O **immediately**), `hot`/`stat`-on-self/`defense`/`barrier` (**staged** — installed at END, so an "empower + strike" boosts your *next* strike, not this one). A `control` is dropped if O is already stunned or within a post-stun immunity window. HP floors at 0.
+4. **END — upkeep (A only).** Decrement A's effect timers (use-before-decrement) and drop the expired; when a `control` on A just expired, grant A `stun_immunity_turns` (2) of immunity to further stun (else count that window down); install A's staged self-effects (a new stance replaces the old; effects list capped at 6, barriers at 2); tick A's cooldowns and apply this bundle's new cooldowns; regen A's mana (capped, **even while stunned**). O's effects/cooldowns are untouched — they tick on O's turns.
+5. **Match-over check**, then advance (P1↔P2; a P2 action closes the round and checks the round cap, §1).
 
 **Consequences of owner-turn timing:** a self-buff cast on your turn first bites on your *next* turn and lasts exactly `duration` of your turns; a `dot`/debuff lands on O immediately and ticks on O's next `duration` turns; a cooldown-N move blocks exactly your next N turns.
 
@@ -119,11 +121,12 @@ Advantage chart (attacker → defending stance's element): fire > nature, nature
 
 ## 11. Out of scope / deferred
 
-Not implemented yet, in rough priority order: **A.2** `control`/stun (turn-skip); **A.3** `resource` (mana drain/grant); **P1** `hit_chance`/blind + the reliability/miss system and competitive-vs-sandbox balance modes; **P3** entities/minions (summon/charm/taunt). Online play, accounts, AI opponent, items/equipment, and persistent progression remain out of scope; additions require user approval and a `SPEC.md` scope change.
+Not implemented yet, in rough priority order: **A.3** `resource` (mana drain/grant); **P1** `hit_chance`/blind + the reliability/miss system and competitive-vs-sandbox balance modes; **P3** entities/minions (summon/charm/taunt). Online play, accounts, AI opponent, items/equipment, and persistent progression remain out of scope; additions require user approval and a `SPEC.md` scope change.
 
 ---
 
 *Changelog (append newest first):*
+- 2026-07-03 — **Real stun (`control`, A.2).** Added a `control` component: the target skips their turn(s). START ticks + poison-KO still run first (a stunned player can be poisoned to death); then the stunned player skips ACT — server-authoritative (`/api/resolve` now accepts `action: null`, and skips regardless of the submitted action). Anti stun-lock: a `control` is dropped if the target is already stunned or within a `stun_immunity_turns` (2) window granted when a stun wears off; plus control cooldown 2, `max_control_duration` 2, and a high cost (weight × duration). Judge maps "freeze solid"/"petrify"/"knock out" → `control` ("blind"/"slow" stay a speed debuff).
 - 2026-07-03 — **Durability armor (`barrier`).** Added a `barrier` component: a persistent absorb pool (`power × 3` points) that soaks incoming damage until it shatters — no timer, kept in a separate `PlayerState.barriers` list (exempt from the effect decrement + cap). Sits closest to HP in the damage pipeline (after the stance layer); dots bypass it; a reflected hit is soaked by the attacker's own barrier. The judge now maps durable gear ("plate armor", "force field", "ward") → `barrier`, keeping `defense` for one-shot blocks and `stat(damage_taken)` for expose/brace. (Also shipped: a frontend combat ledger — presentation only, no rule change.)
 - 2026-07-03 — **Cost retune.** Bundle pricing now applies the exponent **per component** then sums (`Σ(wᵢ^e)`, was `(Σ wᵢ)^e`) — single-move costs are unchanged but 2-effect bundles dropped from the ~20 cap to ~13–18. Softened weights (heal 1.1→1.0, defense 0.8→0.75, dot/hot/stat down) and bundle multipliers (2: 1.3→1.15, 3: 1.7→1.3); mana economy up (start 10→12, max 20→22, regen 3→4). No-burst-discount invariant preserved.
 - 2026-07-03 — **Effect grammar (Stage A).** Replaced the 5 closed categories with an open-ended bundle of typed `EffectComponent`s (`damage`/`heal`/`dot`/`hot`/`stat`/`defense`). Rewrote §3–§8: persistent effect **list** (armor/poison/regen/weaken now persist and stack), **aggregate** bundle pricing with a super-additive surcharge, **component-kind** cooldowns, a three-phase turn with **start-of-turn over-time ticks + a new poison-KO path**, staged self-effects, and the pinned damage pipeline (type → armor → stance). Judge now emits a permissive component list; the server normalizes/clamps/caps. Deferred: stun, resource, blind/reliability, entities.

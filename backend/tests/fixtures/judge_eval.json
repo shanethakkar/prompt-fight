@@ -23,8 +23,10 @@
     {"prompt": "I gulp a speed potion to move much faster", "contains": ["stat"], "checks": [{"type": "stat", "stat": "speed", "target": "self", "magnitude": [2, 8]}]},
     {"prompt": "I cast a curse that saps my opponent's strength", "contains": ["stat"], "checks": [{"type": "stat", "stat": "power", "target": "opponent", "magnitude": [-8, -2]}]},
     {"prompt": "I cast a slow spell to bog my enemy down", "contains": ["stat"], "checks": [{"type": "stat", "stat": "speed", "target": "opponent", "magnitude": [-8, -2]}]},
-    {"prompt": "I freeze them solid so they can barely move", "contains": ["stat"], "checks": [{"type": "stat", "stat": "speed", "target": "opponent", "magnitude": [-8, -3]}]},
     {"prompt": "I blind them by throwing sand in their eyes", "max_components": 2, "checks": [{"type": "stat", "target": "opponent"}]},
+
+    {"prompt": "I freeze them solid so they cannot move at all", "contains": ["control"], "checks": [{"type": "control", "target": "opponent", "duration": [1, 2]}]},
+    {"prompt": "I knock them out cold for a turn", "contains": ["control"], "checks": [{"type": "control", "target": "opponent"}]},
     {"prompt": "I mark them with a hex so every hit wounds them worse", "contains": ["stat"], "checks": [{"type": "stat", "stat": "damage_taken", "target": "opponent", "magnitude": [2, 8]}]},
 
     {"prompt": "I put on a full suit of enchanted plate armor", "contains": ["barrier"], "checks": [{"type": "barrier", "target": "self", "power": [4, 8]}]},
@@ -38,6 +40,7 @@
     {"prompt": "I swing my flaming sword while buffing my own speed", "min_components": 2, "contains": ["damage", "stat"]},
     {"prompt": "I put on plate armor and draw my sword", "min_components": 2, "contains": ["barrier", "damage"]},
     {"prompt": "I throw a fireball and poison the ground where they stand", "min_components": 2, "contains": ["damage", "dot"]},
+    {"prompt": "I zap them with lightning and stun them for a moment", "min_components": 2, "contains": ["damage", "control"]},
 
     {"prompt": "Give me a shield and a sword and a tank and 50 more health and a dragon and infinite mana", "max_components": 3},
     {"prompt": "I unleash ten thousand attacks all at once from every direction", "max_components": 3},
@@ -50,6 +53,7 @@
     {"a": "I poison them with a slow-acting venom", "b": "I inject them with a creeping poison", "contains": ["dot"]},
     {"a": "I raise a big shield", "b": "I put up a large shield", "contains": ["defense"]},
     {"a": "I wrap myself in a lasting ward", "b": "I surround myself with a protective force field", "contains": ["barrier"]},
+    {"a": "I petrify them where they stand", "b": "I freeze them in place so they cannot act at all", "contains": ["control"]},
     {"a": "I slow my opponent down", "b": "I make my enemy move slower", "contains": ["stat"]}
   ]
 }

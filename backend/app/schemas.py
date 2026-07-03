@@ -43,13 +43,17 @@ class JudgeResponse(BaseModel):
 
 
 class ResolveRequest(BaseModel):
-    """Resolve one action bundle for the active player (state.active)."""
+    """Resolve one action bundle for the active player (state.active).
+
+    ``action`` is null when the active player is stunned and skips their turn;
+    the server also skips ACT on its own if the player is stunned regardless.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     match_id: str
     state: GameState
-    action: Action
+    action: Action | None = None
 
 
 class MatchConfig(BaseModel):

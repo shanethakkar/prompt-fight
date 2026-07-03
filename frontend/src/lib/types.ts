@@ -3,7 +3,15 @@
 
 export type Element = "physical" | "fire" | "water" | "nature" | "lightning";
 
-export type ComponentType = "damage" | "heal" | "dot" | "hot" | "stat" | "defense" | "barrier";
+export type ComponentType =
+  | "damage"
+  | "heal"
+  | "dot"
+  | "hot"
+  | "stat"
+  | "defense"
+  | "barrier"
+  | "control";
 
 export type ComponentTarget = "self" | "opponent";
 
@@ -102,6 +110,7 @@ export interface PlayerState {
   cooldowns: Record<string, number>;
   effects: ActiveEffect[];
   barriers: Barrier[];
+  stun_immunity: number;
 }
 
 export interface GameState {
@@ -185,7 +194,7 @@ export interface JudgeResponse {
 export interface ResolveRequest {
   match_id: string;
   state: GameState;
-  action: Action;
+  action: Action | null; // null = the active player is stunned and skips
 }
 
 export interface NewMatchResponse {

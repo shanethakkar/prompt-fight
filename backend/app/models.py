@@ -37,6 +37,7 @@ class ComponentType(StrEnum):
     stat = "stat"  # persistent stat shift (empower/weaken/haste/slow/armor/expose)
     defense = "defense"  # a raised defensive stance (shield/dodge/reflect)
     barrier = "barrier"  # a durability pool that absorbs damage until it shatters
+    control = "control"  # stun: the target skips their turn(s)
 
 
 class ComponentTarget(StrEnum):
@@ -123,6 +124,7 @@ COMPONENT_TEMPLATE: dict[ComponentType, Template] = {
     ComponentType.stat: Template.buff_aura,
     ComponentType.defense: Template.shield_raise,
     ComponentType.barrier: Template.shield_raise,
+    ComponentType.control: Template.debuff_cloud,
 }
 
 DEFENSE_TEMPLATE: dict[DefenseSubtype, Template] = {
@@ -252,6 +254,8 @@ class PlayerState(BaseModel):
     cooldowns: dict[str, int] = Field(default_factory=dict)
     effects: list[ActiveEffect] = Field(default_factory=list)
     barriers: list[Barrier] = Field(default_factory=list)
+    # Turns of immunity to incoming stun after one wears off (anti stun-lock).
+    stun_immunity: int = 0
 
 
 class GameState(BaseModel):

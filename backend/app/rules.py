@@ -65,6 +65,7 @@ def normalize_components(raw: list[Any], balance: BalanceConfig) -> list[EffectC
 
     out: list[EffectComponent] = []
     seen_damage = False
+    seen_control = False
 
     for item in raw:
         if len(out) >= balance.max_components:
@@ -134,6 +135,12 @@ def normalize_components(raw: list[Any], balance: BalanceConfig) -> list[EffectC
                     type=ctype, target=ComponentTarget.caster, element=element, power=power
                 )
             )
+        elif ctype is ComponentType.control:
+            if seen_control:
+                continue  # at most one stun per bundle
+            seen_control = True
+            cdur = _clamp(_int(item.get("duration"), 1), 1, balance.max_control_duration)
+            out.append(EffectComponent(type=ctype, target=ComponentTarget.opponent, duration=cdur))
 
     return out
 
@@ -160,6 +167,8 @@ def component_weight(c: EffectComponent, balance: BalanceConfig) -> float:
         return (c.power or 0) * w.defense
     if c.type is ComponentType.barrier:
         return (c.power or 0) * w.barrier
+    if c.type is ComponentType.control:
+        return w.control * (c.duration or 1)
     return 0.0
 
 
@@ -196,6 +205,8 @@ def kind_cooldowns(components: list[EffectComponent], balance: BalanceConfig) ->
         elif c.type in (ComponentType.defense, ComponentType.barrier):
             # Barrier shares the defensive-stance cooldown (both are "put up a guard").
             key, base = "defense", balance.kind_cooldowns_turns.defense
+        elif c.type is ComponentType.control:
+            key, base = "control", balance.kind_cooldowns_turns.control
         else:
             continue
         if (c.power or 0) >= balance.heavy_move_power_threshold:

@@ -53,6 +53,7 @@ class ComponentWeights(BaseModel):
     stat: float
     defense: float
     barrier: float
+    control: float
 
 
 class KindCooldowns(BaseModel):
@@ -110,6 +111,9 @@ class BalanceConfig(BaseModel):
 
     barrier_pool_per_power: float
     max_barriers_per_player: int
+
+    max_control_duration: int
+    stun_immunity_turns: int
 
     damage_taken_per_point: float
     damage_taken_mult_floor: float

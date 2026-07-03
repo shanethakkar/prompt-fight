@@ -73,6 +73,8 @@ export function describeComponent(c: EffectComponent): string {
       return `${capitalize(c.subtype ?? "shield")}`;
     case "barrier":
       return `Barrier · pow ${c.power}`;
+    case "control":
+      return `Stun · ${c.duration}t`;
     default:
       return c.type;
   }
@@ -138,12 +140,19 @@ export function narrateResult(e: ResolutionEvent, names: Record<Side, string>): 
   if (e.kind === "barrier_shatter") {
     return `${target}'s barrier shatters!`;
   }
+  if (e.kind === "stun_skip") {
+    return `${actor} is stunned — skips the turn.`;
+  }
 
   switch (e.kind) {
     case "damage":
       return narrateDamage(e, actor, target);
     case "barrier":
       return `${actor} raises a barrier${eff?.barrier_remaining ? ` (${eff.barrier_remaining} absorb)` : ""}.`;
+    case "control":
+      return e.outcome === "fizzled"
+        ? `${target} shrugs off the stun.`
+        : `${target} is stunned${eff?.duration ? ` for ${eff.duration} turns` : ""}!`;
     case "heal":
       return e.amount > 0 ? `${actor} recovers ${e.amount} HP.` : `${actor} is already at full health.`;
     case "dot":
@@ -249,6 +258,9 @@ export function statusChips(p: PlayerState): Chip[] {
         chips.push({ text: txt, tone: "defense" });
         break;
       }
+      case "control":
+        chips.push({ text: `Stunned ${e.turns_remaining}t`, tone: "debuff" });
+        break;
     }
   }
   for (const bar of p.barriers) {

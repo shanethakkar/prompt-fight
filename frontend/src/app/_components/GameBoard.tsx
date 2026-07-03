@@ -14,6 +14,7 @@ import type { Phase } from "@/lib/game";
 import { StartScreen } from "./StartScreen";
 import { HandoffScreen } from "./HandoffScreen";
 import { PromptPanel } from "./PromptPanel";
+import { StunnedScreen } from "./StunnedScreen";
 import { CostPreview } from "./CostPreview";
 import { PlayerStatus } from "./PlayerStatus";
 import { PlaybackLog } from "./PlaybackLog";
@@ -36,6 +37,8 @@ export default function GameBoard() {
 
   const activeSide = state?.active ?? "p1";
   const activePlayer = state ? state[activeSide] : null;
+  const activeStunned =
+    activePlayer?.effects.some((e) => e.kind === "control" && e.turns_remaining > 0) ?? false;
 
   async function startMatch(p1Name: string, p2Name: string, sb: boolean) {
     setBusy(true);
@@ -110,6 +113,21 @@ export default function GameBoard() {
     }
   }
 
+  async function skipTurn() {
+    if (!state) return;
+    setPreState(state);
+    setPreview(null);
+    setPhase("resolving");
+    try {
+      const result = await api.resolve({ match_id: matchId, state, action: null });
+      setLastResult(result);
+      setPhase("playback");
+    } catch {
+      setInputError("Resolve failed. Try again.");
+      setPhase("input");
+    }
+  }
+
   function rewriteAction() {
     setPreview(null);
     setPhase("input");
@@ -154,15 +172,18 @@ export default function GameBoard() {
           </div>
           <div className="flex flex-col items-center">
             {phase === "handoff" && <HandoffScreen name={activePlayer.name} onReady={handoffReady} />}
-            {phase === "input" && (
-              <PromptPanel
-                name={activePlayer.name}
-                mana={activePlayer.mana}
-                error={inputError}
-                busy={busy}
-                onSubmit={submitPrompt}
-              />
-            )}
+            {phase === "input" &&
+              (activeStunned ? (
+                <StunnedScreen name={activePlayer.name} busy={busy} onSkip={skipTurn} />
+              ) : (
+                <PromptPanel
+                  name={activePlayer.name}
+                  mana={activePlayer.mana}
+                  error={inputError}
+                  busy={busy}
+                  onSubmit={submitPrompt}
+                />
+              ))}
             {phase === "preview" && preview && (
               <CostPreview
                 res={preview}

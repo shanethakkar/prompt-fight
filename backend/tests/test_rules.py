@@ -204,6 +204,29 @@ def test_barrier_shares_defense_cooldown():
     assert kind_cooldowns(comps, BAL) == {"defense": BAL.kind_cooldowns_turns.defense}
 
 
+def test_normalize_at_most_one_control():
+    out = normalize_components(
+        [{"type": "control", "duration": 2}, {"type": "control", "duration": 1}], BAL
+    )
+    assert [c.type for c in out] == [ComponentType.control] and out[0].duration == 2
+
+
+def test_control_duration_clamped():
+    out = normalize_components([{"type": "control", "duration": 9}], BAL)
+    assert out[0].duration == BAL.max_control_duration
+
+
+def test_control_cost_scales_with_duration():
+    c1 = EffectComponent(type=ComponentType.control, duration=1)
+    c2 = EffectComponent(type=ComponentType.control, duration=2)
+    assert bundle_cost([c2], BAL) > bundle_cost([c1], BAL)
+
+
+def test_control_has_cooldown():
+    comps = [EffectComponent(type=ComponentType.control, duration=1)]
+    assert kind_cooldowns(comps, BAL) == {"control": BAL.kind_cooldowns_turns.control}
+
+
 # ---------------------------------------------------------------------------
 # kind_cooldowns: only heal/defense throttled; heavy bump
 # ---------------------------------------------------------------------------

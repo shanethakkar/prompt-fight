@@ -89,6 +89,10 @@ def stance(subtype="shield", element="physical", power=4, speed=5, turns=1, sour
     )
 
 
+def control_eff(turns=1, source="p1"):
+    return ActiveEffect(kind=EffectKind.control, turns_remaining=turns, source=source)
+
+
 WEAK = action({"type": "damage", "power": 1})
 DMG5 = {"type": "damage", "power": 5}
 DMG6 = {"type": "damage", "power": 6}
@@ -531,6 +535,73 @@ def test_round_cap_tiebreak_at_boundary():
 def test_hp_floors_at_zero():
     r = turn(state(p2=player(hp=3, name="P2")), action(DMG5))
     assert r.state.p2.hp == 0
+
+
+# ---------------------------------------------------------------------------
+# Control (stun): skip a turn, poison still bites, anti stun-lock immunity
+# ---------------------------------------------------------------------------
+
+
+def test_stun_skips_turn_and_ignores_submitted_action():
+    st = state(active="p2", p2=player(name="P2", effects=[control_eff(turns=1)]))
+    r = turn(st, action({"type": "damage", "power": 9}))  # attack ignored while stunned
+    assert any(e.kind == "stun_skip" for e in r.events)
+    assert r.state.p1.hp == 100  # the submitted attack never landed
+    assert not any(e.kind is EffectKind.control for e in r.state.p2.effects)  # 1-turn stun expired
+    assert r.state.p2.stun_immunity == BAL.stun_immunity_turns
+
+
+def test_stun_duration_two_skips_two_turns():
+    st = state(active="p2", p2=player(name="P2", effects=[control_eff(turns=2)]))
+    r = turn(st, None)  # skip #1
+    assert any(e.kind == "stun_skip" for e in r.events)
+    r = turn(r.state, WEAK)  # p1 filler
+    r = turn(r.state, None)  # skip #2
+    assert any(e.kind == "stun_skip" for e in r.events)
+    assert not any(e.kind is EffectKind.control for e in r.state.p2.effects)
+
+
+def test_stunned_player_still_dies_to_poison():
+    st = state(
+        active="p2",
+        p2=player(
+            hp=3, name="P2", effects=[dot_eff(per_turn=5, source="p1"), control_eff(turns=1)]
+        ),
+    )
+    r = turn(st, None)
+    assert r.match_over and r.winner == "p1"
+    assert [e.kind for e in r.events] == ["dot_tick"]  # died at start, before the stun beat
+
+
+def test_mana_regens_while_stunned():
+    st = state(active="p2", p2=player(mana=5, name="P2", effects=[control_eff(turns=1)]))
+    r = turn(st, None)
+    assert r.state.p2.mana == 5 + BAL.mana_regen_per_turn
+
+
+def test_stun_immunity_blocks_a_restun():
+    st = state()
+    st.p2.stun_immunity = 2
+    r = turn(st, action({"type": "control", "duration": 1}))  # p1 tries to stun an immune p2
+    assert next(e for e in r.events if e.kind == "control").outcome == Outcome.fizzled
+    assert not any(e.kind is EffectKind.control for e in r.state.p2.effects)
+
+
+def test_cannot_stun_an_already_stunned_target():
+    st = state(p2=player(name="P2", effects=[control_eff(turns=1, source="p1")]))
+    r = turn(st, action({"type": "control", "duration": 1}))
+    assert next(e for e in r.events if e.kind == "control").outcome == Outcome.fizzled
+
+
+def test_skip_none_action_passes_turn():
+    r = turn(state(active="p1"), None)  # not stunned, just a skip
+    assert r.state.active == "p2" and any(e.kind == "fizzle" for e in r.events)
+
+
+def test_stun_lands_full_duration_on_opponent():
+    r = turn(state(active="p1"), action({"type": "control", "duration": 2}))
+    ctrl = [e for e in r.state.p2.effects if e.kind is EffectKind.control]
+    assert ctrl and ctrl[0].turns_remaining == 2
 
 
 # ---------------------------------------------------------------------------

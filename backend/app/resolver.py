@@ -87,6 +87,10 @@ def _stance(player: PlayerState) -> ActiveEffect | None:
     return next((e for e in player.effects if e.kind is EffectKind.defense), None)
 
 
+def _is_stunned(player: PlayerState) -> bool:
+    return any(e.kind is EffectKind.control and e.turns_remaining > 0 for e in player.effects)
+
+
 def _absorb_through_barriers(target: PlayerState, amount: int) -> tuple[int, int, int, list[str]]:
     """Soak ``amount`` through the target's durability pools (closest to HP).
 
@@ -169,8 +173,13 @@ def _apply_damage(
     return o_side, dmg, outcome, EffectSummary(kind="reflect", absorbed=max(0, typed_i - dmg))
 
 
-def resolve_turn(state: GameState, action: Action, balance: BalanceConfig) -> ResolveResult:
-    """Resolve one bundle for the active player and advance the turn."""
+def resolve_turn(state: GameState, action: Action | None, balance: BalanceConfig) -> ResolveResult:
+    """Resolve one bundle for the active player and advance the turn.
+
+    ``action`` may be ``None`` (a skip). A stunned active player skips ACT
+    regardless of the submitted action — the server never trusts the client to
+    honor a stun.
+    """
     ns = state.model_copy(deep=True)  # input immutability
     a_side = ns.active
     o_side = _OPPONENT[a_side]
@@ -220,16 +229,34 @@ def resolve_turn(state: GameState, action: Action, balance: BalanceConfig) -> Re
     if active.hp <= 0:
         return ResolveResult(events=events, state=ns, match_over=True, winner=o_side)
 
+    # A stun makes the active player skip ACT. The START ticks above still fired,
+    # so a stunned player can still be poisoned to death this turn.
+    stunned = _is_stunned(active)
+    if stunned:
+        events.append(
+            ResolutionEvent(
+                actor=a_side,
+                target=a_side,
+                kind="stun_skip",
+                outcome=Outcome.fizzled,
+                effect=EffectSummary(kind="control", label="stunned"),
+                template=Template.debuff_cloud,
+                state_delta=_display(players, balance),
+            )
+        )
+    components = [] if (stunned or action is None) else action.components
+    flavor = action.flavor_text if action is not None else ""
+
     # --- ACT: pay the aggregate cost, then apply each component in order.
-    active.mana = max(0, active.mana - bundle_cost(action.components, balance))
-    atk_speed = effective_speed(action.speed, active.effects)
+    active.mana = max(0, active.mana - bundle_cost(components, balance))
+    atk_speed = effective_speed(action.speed if action is not None else 5, active.effects)
     staged: list[ActiveEffect] = []  # self-targeted effects installed post-decrement
     staged_barriers: list[Barrier] = []
     stance_available = True  # the opponent's stance is consumed by the first hit
     primary_narrated = False
 
-    for c in action.components:
-        narration = "" if primary_narrated else action.flavor_text
+    for c in components:
+        narration = "" if primary_narrated else flavor
         target: Side = o_side
         outcome = Outcome.applied
         amount = 0
@@ -348,6 +375,23 @@ def resolve_turn(state: GameState, action: Action, balance: BalanceConfig) -> Re
             target = a_side
             summary = EffectSummary(kind="barrier", barrier_remaining=pool)
 
+        elif c.type is ComponentType.control:
+            # A stun lands immediately on a non-stunned, non-immune opponent.
+            if _is_stunned(opponent) or opponent.stun_immunity > 0:
+                target, outcome = o_side, Outcome.fizzled
+                summary = EffectSummary(kind="control", label="immune")
+            else:
+                opponent.effects.append(
+                    ActiveEffect(
+                        kind=EffectKind.control,
+                        turns_remaining=c.duration or 1,
+                        source=a_side,
+                        label="stunned",
+                    )
+                )
+                target = o_side
+                summary = EffectSummary(kind="control", duration=c.duration, label="stunned")
+
         events.append(
             ResolutionEvent(
                 actor=a_side,
@@ -379,12 +423,18 @@ def resolve_turn(state: GameState, action: Action, balance: BalanceConfig) -> Re
 
     # --- END OF TURN upkeep for the ACTIVE player only.
     _decrement_effects(active)
+    # When a stun wears off, grant the victim brief immunity (anti stun-lock);
+    # otherwise count that immunity window down on their own turns.
+    if stunned and not _is_stunned(active):
+        active.stun_immunity = balance.stun_immunity_turns
+    elif active.stun_immunity > 0:
+        active.stun_immunity -= 1
     _install_staged(active, staged, balance)
     if staged_barriers:  # barriers have no timer; kept until broken, newest capped
         active.barriers.extend(staged_barriers)
         active.barriers = active.barriers[-balance.max_barriers_per_player :]
     active.cooldowns = {k: t - 1 for k, t in active.cooldowns.items() if t - 1 > 0}
-    for k, cd in kind_cooldowns(action.components, balance).items():
+    for k, cd in kind_cooldowns(components, balance).items():
         active.cooldowns[k] = cd
     active.mana = min(balance.mana_max, active.mana + balance.mana_regen_per_turn)
 
@@ -410,7 +460,7 @@ def resolve_turn(state: GameState, action: Action, balance: BalanceConfig) -> Re
                 target=a_side,
                 kind="fizzle",
                 outcome=Outcome.fizzled,
-                narration=action.flavor_text,
+                narration=flavor,
                 state_delta=_display(players, balance),
             )
         )
