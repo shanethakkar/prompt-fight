@@ -1,22 +1,41 @@
 """FastAPI application entry point.
 
-M2: /api/judge (moderation -> judge -> server-computed cost) and /api/resolve
-(thin wrapper over the pure M1 resolver). The API key lives only in backend env.
+Endpoints: /api/new_match (initial state + display config), /api/judge
+(moderation -> judge -> server-computed cost), /api/resolve (thin wrapper over
+the pure M1 resolver). The API key lives only in backend env.
 """
 
 from __future__ import annotations
 
+import uuid
+
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import load_balance
 from app.judge import judge
 from app.models import ResolveResult
 from app.moderation import moderate
-from app.resolver import resolve
+from app.resolver import initial_game, resolve
 from app.rules import mana_cost
-from app.schemas import JudgeRequest, JudgeResponse, ResolveRequest
+from app.schemas import (
+    JudgeRequest,
+    JudgeResponse,
+    MatchConfig,
+    NewMatchRequest,
+    NewMatchResponse,
+    ResolveRequest,
+)
 
 app = FastAPI(title="Stickmancer")
+
+# Local hot-seat: the browser (localhost:3000) calls this backend directly.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/health")
@@ -24,6 +43,23 @@ def health() -> dict[str, str]:
     """Liveness check that also proves balance.json loads and validates."""
     cfg = load_balance()
     return {"status": "ok", "judge_model": cfg.judge_model}
+
+
+@app.post("/api/new_match", response_model=NewMatchResponse)
+def api_new_match(req: NewMatchRequest) -> NewMatchResponse:
+    """Start a match: initial state + the display constants the client needs."""
+    balance = load_balance()
+    return NewMatchResponse(
+        match_id=uuid.uuid4().hex,
+        state=initial_game(balance, req.p1_name, req.p2_name),
+        config=MatchConfig(
+            hp_max=balance.hp_max,
+            mana_max=balance.mana_max,
+            mana_regen_per_turn=balance.mana_regen_per_turn,
+            rewrites_per_turn=balance.rewrites_per_turn,
+            max_turns=balance.max_turns,
+        ),
+    )
 
 
 @app.post("/api/judge", response_model=JudgeResponse)

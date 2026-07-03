@@ -95,6 +95,39 @@ def test_judge_moderation_reject(monkeypatch):
     assert body["rewrites_remaining"] == 1  # a reject still consumes a rewrite
 
 
+# ---- /api/new_match ---------------------------------------------------------
+
+
+def test_new_match():
+    r = client.post("/api/new_match", json={"p1_name": "Ada", "p2_name": "Bo"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["match_id"]
+    assert body["state"]["turn"] == 1
+    assert body["state"]["p1"]["name"] == "Ada"
+    assert body["state"]["p1"]["hp"] == 100 and body["state"]["p1"]["mana"] == 10
+    cfg = body["config"]
+    assert cfg["hp_max"] == 100
+    assert cfg["mana_max"] == 20
+    assert cfg["rewrites_per_turn"] == 2
+    assert cfg["max_turns"] == 30
+
+
+def test_new_match_defaults():
+    body = client.post("/api/new_match", json={}).json()
+    assert body["state"]["p1"]["name"] == "Player 1"
+    assert body["state"]["p2"]["name"] == "Player 2"
+
+
+def test_cors_headers_present():
+    r = client.post(
+        "/api/new_match",
+        json={},
+        headers={"Origin": "http://localhost:3000"},
+    )
+    assert r.headers.get("access-control-allow-origin") == "http://localhost:3000"
+
+
 # ---- /api/resolve -----------------------------------------------------------
 
 

@@ -32,6 +32,12 @@
 
 ---
 
+## 2026-07-02 — M3 minimal playable (hot-seat UI)
+- Done: First playable, first fun-check. Backend glue: CORS middleware + `POST /api/new_match` (initial GameState + MatchConfig) with tests. Frontend (Next 16 client): `src/lib/{types,api,game}.ts` (TS mirrors of the contract incl. `stat`, fetch wrappers, pure display/gating helpers + 11 vitest units), and a `GameBoard` state machine (`start→handoff→input→preview→resolving→playback→gameover`) with `Start/Handoff/Prompt/CostPreview/PlayerStatus/Playback/Victory` components. Hidden-input handoff preserves secrecy; cost-preview shows parsed effect + mana cost with Confirm/Rewrite; text-only sequential playback with HP/mana bars; victory screen. Server-authoritative (client sends state to /api/resolve, computes no combat).
+- Files: backend/app/{main,schemas}.py, backend/tests/test_api.py, frontend/.env.local, frontend/src/lib/{types,api,game}.ts + game.test.ts, frontend/src/app/page.tsx + globals.css, frontend/src/app/_components/*.tsx (8), SPEC.md (§3/§6), PROGRESS.md.
+- Verified: backend `pytest -m "not live"` green + ruff clean; frontend test(12)/typecheck/lint/build all green; **played a full turn end-to-end via Playwright** vs the real judge — "massive fireball" (attack/projectile/fire, cost 9) vs "stone shield" resolved correctly (defense first, 6 dmg through → P2 94hp), bars + narrations updated, no console errors. Screenshots captured.
+- Follow-ups: **P1** — modes + reliability on this shell (odds in preview, fizzle/partial/crit in playback). **M4** — stick figures + animation (replaces text playback). Rewrite/affordability edge cases kept pragmatic (documented). No modes/reliability yet (current engine).
+
 ## 2026-07-02 — Design direction documented (DESIGN.md)
 - Done: Captured the agreed pivot to open-ended effects. New `DESIGN.md` covers the vision (player imagination is the limit), the generic effect grammar (§3), two modes (§4), the reliability system (§5), what's reused vs. reworked from M0–M2 (§6), a phased rollout P1–P4 (§7), and open decisions (§8). Cross-linked from CLAUDE.md source-of-truth map; direction-change notes added to SPEC.md and GAME_MECHANICS.md headers.
 - Files: DESIGN.md (new), CLAUDE.md, SPEC.md, GAME_MECHANICS.md, PROGRESS.md.

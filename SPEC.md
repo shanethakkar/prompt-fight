@@ -47,11 +47,12 @@ A turn-based stick-figure duel where players type freeform attack prompts. An LL
   └─ Game state display (HP/mana bars, cooldowns, turn log)
         │  HTTPS/JSON
         ▼
-[FastAPI backend]
+[FastAPI backend]  (CORS enabled for the dev frontend origin)
+  ├─ POST /api/new_match → initial GameState + display MatchConfig (M3)
   ├─ POST /api/judge     → moderation pre-filter → LLM judge → server-computed mana cost → parsed action
   ├─ POST /api/resolve   → pure-function resolver (speed order, type chart, block math) → resolution events + new state
-  ├─ Replay logger       → JSONL per match in data/replays/
-  └─ Rate limiter        → light per-IP limit (belt-and-suspenders beyond mana throttling)
+  ├─ Replay logger       → JSONL per match in data/replays/  (deferred to M5)
+  └─ Rate limiter        → light per-IP limit (deferred to M5)
         │
         ▼
 [LLM provider API]  (judge calls only)
@@ -85,10 +86,14 @@ Optional per-submission input timer is a config value (off by default for hot-se
 
 ## 6. API contract (v1)
 
+### POST /api/new_match
+Request: `{ "p1_name": str, "p2_name": str }` (both optional). Response: `{ "match_id": str, "state": <GameState>, "config": <MatchConfig> }`, where `MatchConfig = { hp_max, mana_max, mana_regen_per_turn, rewrites_per_turn, max_turns }` — the display constants the client needs without hardcoding `balance.json`.
+
 ### POST /api/judge
-Request: `{ "prompt": str, "player": {"mana": int, "cooldowns": {...}}, "match_id": str }`
-Response (success): `{ "action": <JudgedAction>, "mana_cost": int, "affordable": bool, "rewrites_remaining": int }`
-Response (moderation reject): `{ "error": "moderation", "message": str }`
+Request: `{ "prompt": str, "player": {"mana": int, "cooldowns": {...}}, "match_id": str, "rewrites_remaining"?: int }`
+Response (success): `{ "action": <JudgedAction>, "mana_cost": int, "affordable": bool, "on_cooldown": bool, "rewrites_remaining": int }`
+Response (moderation reject): `{ "error": "moderation", "message": str, "rewrites_remaining": int }`
+(`rewrites_remaining` is client-owned turn state, echoed back decremented; `on_cooldown` is computed from the request's cooldown snapshot.)
 `JudgedAction` schema is defined once in `JUDGE.md` §4 and mirrored as a Pydantic model + TypeScript type. **Mana cost is computed server-side** from the judge's power/category via the formula in `balance.json` — the LLM never sets costs directly.
 
 ### POST /api/resolve
