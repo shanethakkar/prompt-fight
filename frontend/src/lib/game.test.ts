@@ -162,6 +162,42 @@ describe("narrateResult", () => {
       "Ada hits Bo for 18.",
     );
   });
+  it("narrates armor mitigation and a Zork-style condition", () => {
+    expect(
+      narrateResult(
+        ev({
+          kind: "damage",
+          outcome: "hit_knockback",
+          amount: 7,
+          effect: { kind: "damage", armor_reduced: 11 },
+          condition: { hp: 10, max_hp: 40, status: ["burning"] },
+        }),
+        NAMES,
+      ),
+    ).toBe("Ada hits Bo for 7 — the armor turns aside 11. Bo is badly hurt and reeling and still burning.");
+  });
+  it("narrates a plain hit with a condition clause", () => {
+    expect(
+      narrateResult(
+        ev({ kind: "damage", outcome: "hit_knockback", amount: 18, condition: { hp: 82, max_hp: 100, status: [] } }),
+        NAMES,
+      ),
+    ).toBe("Ada hits Bo for 18. Bo is barely scratched.");
+  });
+  it("narrates a poison tick with a fading condition", () => {
+    expect(
+      narrateResult(
+        ev({
+          kind: "dot_tick",
+          target: "p2",
+          amount: 4,
+          effect: { kind: "dot", label: "poison" },
+          condition: { hp: 4, max_hp: 40, status: ["poisoned"] },
+        }),
+        NAMES,
+      ),
+    ).toBe("Bo takes 4 poison damage. Bo is clinging to life and poison coursing through them.");
+  });
   it("narrates a partial through a shield", () => {
     expect(
       narrateResult(ev({ kind: "damage", outcome: "partial", amount: 6, effect: { kind: "shield" } }), NAMES),

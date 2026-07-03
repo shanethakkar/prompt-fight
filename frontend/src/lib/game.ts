@@ -164,7 +164,7 @@ export function narrateResult(e: ResolutionEvent, names: Record<Side, string>): 
   // Over-time ticks fire at the start of the afflicted's turn.
   if (e.kind === "dot_tick") {
     const what = eff?.label ? `${eff.label} damage` : "damage";
-    return `${target} takes ${e.amount} ${what}.`;
+    return `${target} takes ${e.amount} ${what}.` + conditionClause(e, target);
   }
   if (e.kind === "hot_tick") {
     return e.amount > 0 ? `${target} regenerates ${e.amount} HP.` : `${target} is already at full health.`;
@@ -178,7 +178,7 @@ export function narrateResult(e: ResolutionEvent, names: Record<Side, string>): 
 
   switch (e.kind) {
     case "damage":
-      return narrateDamage(e, actor, target) + effSuffix(eff);
+      return narrateDamage(e, actor, target) + effSuffix(eff) + conditionClause(e, target);
     case "barrier":
       return `${actor} raises a barrier${eff?.barrier_remaining ? ` (${eff.barrier_remaining} absorb)` : ""}.`;
     case "control":
@@ -224,10 +224,13 @@ function narrateDamage(e: ResolutionEvent, actor: string, target: string): strin
   const eff = e.effect;
   const soaked = eff?.barrier_absorbed ?? 0;
   const left = eff?.barrier_remaining;
+  const armor = eff?.armor_reduced ?? 0;
+  const armorTail = armor ? ` — the armor turns aside ${armor}` : "";
   const barrierTail = soaked ? ` — barrier soaks ${soaked}` : "";
+  const mit = `${armorTail}${barrierTail}`;
   switch (e.outcome) {
     case "hit_knockback":
-      return `${actor} hits ${target} for ${e.amount}${barrierTail}.`;
+      return `${actor} hits ${target} for ${e.amount}${mit}.`;
     case "blocked":
       if (soaked && !eff?.absorbed) {
         return `${target}'s barrier soaks the hit${left != null ? ` — ${left} left` : ""}.`;
@@ -235,7 +238,7 @@ function narrateDamage(e: ResolutionEvent, actor: string, target: string): strin
       return `${target} blocks it${eff?.absorbed ? ` (absorbed ${eff.absorbed})` : ""} — no damage.`;
     case "partial": {
       if (eff?.reliability === "partial") {
-        return `A glancing hit — ${e.amount} to ${target}${barrierTail}.`;
+        return `A glancing hit — ${e.amount} to ${target}${mit}.`;
       }
       const how =
         eff?.kind === "dodge"
@@ -243,7 +246,7 @@ function narrateDamage(e: ResolutionEvent, actor: string, target: string): strin
           : eff?.kind === "reflect"
             ? "punches through the reflect"
             : "gets through the shield";
-      return `It ${how} — ${e.amount} to ${target}${barrierTail}.`;
+      return `It ${how} — ${e.amount} to ${target}${mit}.`;
     }
     case "dodged":
       return `${target} dodges it completely.`;
@@ -252,12 +255,43 @@ function narrateDamage(e: ResolutionEvent, actor: string, target: string): strin
     case "missed":
       return `${actor}'s attack misses ${target}.`;
     case "overload":
-      return `💥 Overload! ${actor} crits ${target} for ${e.amount}${barrierTail}.`;
+      return `💥 Overload! ${actor} crits ${target} for ${e.amount}${mit}.`;
     case "backfired":
       return `${actor}'s overreach backfires — ${e.amount} rebounds on ${actor}!`;
     default:
       return `${actor} hits ${target} for ${e.amount}.`;
   }
+}
+
+// Zork-style condition line from the target's post-hit HP + statuses.
+const HP_BANDS: [number, string[]][] = [
+  [0.8, ["barely scratched", "hardly winded"]],
+  [0.55, ["bloodied but standing", "holding up"]],
+  [0.3, ["wounded", "hurting now"]],
+  [0.12, ["badly hurt and reeling", "staggering"]],
+  [0, ["clinging to life", "on their last legs"]],
+];
+
+const STATUS_FLAVOR: Record<string, string> = {
+  burning: "still burning",
+  poisoned: "poison coursing through them",
+  bleeding: "bleeding freely",
+  chilled: "chilled to the bone",
+  shocked: "crackling with residual shock",
+  stunned: "dazed",
+  slowed: "sluggish",
+  weakened: "weakened",
+  exposed: "wide open",
+};
+
+function conditionClause(e: ResolutionEvent, target: string): string {
+  const c = e.condition;
+  if (!c || c.max_hp <= 0 || c.hp <= 0) return "";
+  const frac = c.hp / c.max_hp;
+  const band = HP_BANDS.find(([t]) => frac > t) ?? HP_BANDS[HP_BANDS.length - 1];
+  const phrase = band[1][c.hp % band[1].length]; // deterministic variation
+  const salient = c.status.map((s) => STATUS_FLAVOR[s]).find(Boolean);
+  return ` ${target} is ${phrase}${salient ? ` and ${salient}` : ""}.`;
 }
 
 function narrateStat(e: ResolutionEvent, actor: string, target: string): string {

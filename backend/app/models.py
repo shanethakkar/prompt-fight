@@ -431,9 +431,20 @@ class EffectSummary(BaseModel):
     absorbed: int | None = None  # flat stance absorption
     barrier_absorbed: int | None = None  # damage soaked by a durability pool
     barrier_remaining: int | None = None  # pool left after this hit
+    armor_reduced: int | None = None  # damage the target's worn armor shaved off
     effectiveness: str | None = None  # matchup tier if not neutral (P3.3)
     reliability: str | None = None  # P1 roll tier if not a clean full hit
     label: str = ""
+
+
+class Condition(BaseModel):
+    """The target's state right after a beat, for narration flavor (HP + statuses)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    hp: int
+    max_hp: int
+    status: list[str] = Field(default_factory=list)  # e.g. ["burning", "armored"]
 
 
 class ResolutionEvent(BaseModel):
@@ -457,6 +468,8 @@ class ResolutionEvent(BaseModel):
     target_name: str | None = None
     # Post-beat snapshot for the renderer: display HP/mana of both players.
     state_delta: dict[str, int] = Field(default_factory=dict)
+    # The target's post-hit condition (HP + statuses) for narration (damage/dot ticks).
+    condition: Condition | None = None
 
 
 class ResolveResult(BaseModel):

@@ -822,6 +822,28 @@ def test_worn_armor_reduces_damage_and_persists():
     assert r2.state.p1.stickman.hp == 86  # still 60% reduced, not worn off
 
 
+def test_hit_records_armor_reduction_and_condition():
+    from app.models import Item
+
+    st = state(active="p2")
+    st.p1.stickman.items = [Item(name="diamond armor", kind="armor", armor=6)]  # 60% off
+    r = turn(st, action(DMG6))  # raw 18 -> 7 lands; the armor turned aside 11
+    dmg = next(e for e in r.events if e.kind == "damage")
+    assert dmg.effect is not None and dmg.effect.armor_reduced == 11
+    assert dmg.condition is not None and dmg.condition.hp == 93
+    assert "armored" in dmg.condition.status
+
+
+def test_dot_tick_carries_condition():
+    st = state(active="p1")
+    st.p1.stickman.effects = [dot_eff(per_turn=5, source="p2")]  # physical -> "bleeding"
+    st.p1.stickman.hp = 20
+    r = turn(st, action(DMG6))  # p1 acts; the dot ticks at START
+    tick = next(e for e in r.events if e.kind == "dot_tick")
+    assert tick.condition is not None and tick.condition.hp == 15
+    assert "bleeding" in tick.condition.status
+
+
 def test_devastating_doubles_damage():
     r = turn(
         state(active="p1"), action({"type": "damage", "power": 6, "effectiveness": "devastating"})

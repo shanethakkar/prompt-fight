@@ -189,9 +189,16 @@ export interface EffectSummary {
   absorbed?: number | null;
   barrier_absorbed?: number | null;
   barrier_remaining?: number | null;
+  armor_reduced?: number | null; // damage the target's worn armor shaved off
   effectiveness?: string | null;
   reliability?: string | null; // P1 roll tier if not a clean full hit
   label?: string;
+}
+
+export interface Condition {
+  hp: number;
+  max_hp: number;
+  status: string[]; // e.g. ["burning", "armored"]
 }
 
 export interface ResolutionEvent {
@@ -210,6 +217,7 @@ export interface ResolutionEvent {
   target_id?: string | null;
   actor_name?: string | null;
   target_name?: string | null;
+  condition?: Condition | null; // target's post-hit state, for narration
 }
 
 export interface ResolveResult {

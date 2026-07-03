@@ -60,6 +60,7 @@ from app.rules import (
     roll_outcome,
     success_odds,
     type_multiplier,
+    unit_condition,
 )
 
 _OPPONENT: dict[str, Side] = {"p1": "p2", "p2": "p1"}
@@ -180,8 +181,16 @@ def _apply_damage(
 
     if stance is None:
         # undefended -> elements inert, but the matchup (kryptonite vs Superman) still bites.
-        dmg = max(0, round(raw * eff_mult * dt_mult))
-        return o_side, dmg, Outcome.hit_knockback, None
+        base = raw * eff_mult
+        dmg = max(0, round(base * dt_mult))
+        # Attribute how much the *worn armor* turned aside (for narration).
+        summary = None
+        if any(it.armor for it in opponent.items):
+            dt_off = damage_taken_mult(opponent, balance, include_worn_armor=False)
+            reduced = max(0, round(base * dt_off) - dmg)
+            if reduced:
+                summary = EffectSummary(kind="damage", armor_reduced=reduced)
+        return o_side, dmg, Outcome.hit_knockback, summary
 
     opponent.effects.remove(stance)  # consume-on-hit
     # effectiveness and the element chart both scale offense; clamp their product.
@@ -281,6 +290,7 @@ def resolve_turn(state: GameState, action: Action | None, balance: BalanceConfig
                         effect=EffectSummary(kind="dot", per_turn=e.per_turn, label=e.label),
                         template=Template.debuff_cloud,
                         state_delta=_snap(),
+                        condition=unit_condition(unit) if unit.hp > 0 else None,
                     )
                 )
             elif e.kind is EffectKind.hot:
@@ -391,6 +401,7 @@ def resolve_turn(state: GameState, action: Action | None, balance: BalanceConfig
         outcome = Outcome.applied
         amount = 0
         summary: EffectSummary | None = None
+        beat_condition = None
         shatter: list[str] = []
         template = _component_template(c, action.template if action is not None else Template.melee)
         hit_unit = target_unit
@@ -467,6 +478,11 @@ def resolve_turn(state: GameState, action: Action | None, balance: BalanceConfig
                         Outcome.overload if reliability_tier == "overload" else Outcome.partial
                     )
                 hit_unit.hp = max(0, hit_unit.hp - amount)
+
+            # The struck unit's condition, for narration (survivors only; a KO
+            # is narrated by its own "falls!" beat).
+            if amount > 0 and hit_unit.hp > 0:
+                beat_condition = unit_condition(hit_unit)
 
         elif c.type is ComponentType.heal:
             before = target_unit.hp
@@ -658,6 +674,7 @@ def resolve_turn(state: GameState, action: Action | None, balance: BalanceConfig
                 template=template,
                 narration=narration,
                 state_delta=_snap(),
+                condition=beat_condition,
             )
         )
         primary_narrated = True

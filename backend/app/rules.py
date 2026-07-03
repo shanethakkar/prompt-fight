@@ -24,6 +24,7 @@ from app.models import (
     Aptitude,
     ComponentTarget,
     ComponentType,
+    Condition,
     DefenseSubtype,
     EffectComponent,
     Effectiveness,
@@ -526,22 +527,59 @@ def effective_speed(base: int, effects: list[ActiveEffect]) -> int:
     return max(1, base + _stat_sum(effects, StatKind.speed))
 
 
-def damage_taken_mult(unit: Unit, balance: BalanceConfig) -> float:
+def damage_taken_mult(
+    unit: Unit, balance: BalanceConfig, *, include_worn_armor: bool = True
+) -> float:
     """Multiplicative incoming-damage factor for a unit, clamped.
 
     Combines the timed ``damage_taken`` stat effects (brace ``−`` / expose ``+``,
     each contributing ``1 + magnitude × per_point``) with **worn armor** — every
     equipped armor item shaves ``armor × per_point`` off every hit, persistently.
     All factors multiply, then clamp to [floor, ceil] (so max ~75% reduction).
+    ``include_worn_armor=False`` omits the item armor (to attribute its share).
     """
     mult = 1.0
     for e in unit.effects:
         if e.kind is EffectKind.stat and e.stat is StatKind.damage_taken:
             mult *= 1 + e.magnitude * balance.damage_taken_per_point
-    for it in unit.items:
-        if it.armor:
-            mult *= 1 - it.armor * balance.damage_taken_per_point
+    if include_worn_armor:
+        for it in unit.items:
+            if it.armor:
+                mult *= 1 - it.armor * balance.damage_taken_per_point
     return max(balance.damage_taken_mult_floor, min(balance.damage_taken_mult_ceil, mult))
+
+
+_DOT_STATUS = {
+    Element.fire: "burning",
+    Element.nature: "poisoned",
+    Element.physical: "bleeding",
+    Element.water: "chilled",
+    Element.lightning: "shocked",
+}
+
+
+def unit_condition(unit: Unit) -> Condition:
+    """The target's post-hit state for narration: HP + compact status tags."""
+    status: list[str] = []
+    for e in unit.effects:
+        if e.kind is EffectKind.dot:
+            status.append(_DOT_STATUS.get(e.element, "afflicted"))
+        elif e.kind is EffectKind.hot:
+            status.append("regenerating")
+        elif e.kind is EffectKind.control and e.turns_remaining > 0:
+            status.append("stunned")
+        elif e.kind is EffectKind.defense:
+            status.append("guarded")
+        elif e.kind is EffectKind.stat:
+            if e.stat is StatKind.damage_taken:
+                status.append("exposed" if e.magnitude > 0 else "armored")
+            elif e.stat is StatKind.power and e.magnitude < 0:
+                status.append("weakened")
+            elif e.stat is StatKind.speed and e.magnitude < 0:
+                status.append("slowed")
+    if any(it.armor for it in unit.items) and "armored" not in status:
+        status.append("armored")
+    return Condition(hp=max(0, unit.hp), max_hp=unit.max_hp, status=status)
 
 
 def type_multiplier(attacker: Element, defender: Element, balance: BalanceConfig) -> float:
