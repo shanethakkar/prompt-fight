@@ -1,8 +1,10 @@
-"""Domain models: the JudgedAction contract, game state, and resolution events.
+"""Domain models: the effect-grammar contract, game state, and resolution events.
 
 These Pydantic models are the single Python source of truth for the game's data
-shapes. `JudgedAction` mirrors JUDGE.md §4; `GameState`/`ResolutionEvent` mirror
-SPEC.md §6. The TypeScript types (M3/M4) mirror these.
+shapes. An `Action` is a small BUNDLE of typed `EffectComponent`s parsed from a
+player's freeform prompt (DESIGN.md §3); the server resolves and prices them.
+Flavor is infinite; the mechanical vocabulary here is small and generic. The
+TypeScript types mirror these.
 """
 
 from __future__ import annotations
@@ -10,7 +12,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 # ---------------------------------------------------------------------------
 # Closed-set enums (never invent members outside these)
@@ -25,28 +27,51 @@ class Element(StrEnum):
     lightning = "lightning"
 
 
-class Category(StrEnum):
-    attack = "attack"
-    defense = "defense"
-    buff = "buff"
-    debuff = "debuff"
-    heal = "heal"
+class ComponentType(StrEnum):
+    """The mechanical kinds a single effect component can be (DESIGN.md §3)."""
+
+    damage = "damage"  # instant hp loss to the target
+    heal = "heal"  # instant hp gain to the target
+    dot = "dot"  # damage over time (poison/burn/bleed)
+    hot = "hot"  # heal over time (regen)
+    stat = "stat"  # persistent stat shift (empower/weaken/haste/slow/armor/expose)
+    defense = "defense"  # a raised defensive stance (shield/dodge/reflect)
 
 
-class Subtype(StrEnum):
-    projectile = "projectile"
-    beam = "beam"
-    melee = "melee"
-    aoe = "aoe"
+class ComponentTarget(StrEnum):
+    """Whose player the component lands on. Wire value ``self`` -> ``caster``."""
+
+    opponent = "opponent"
+    caster = "self"
+
+
+class StatKind(StrEnum):
+    """Which stat a ``stat`` component shifts."""
+
+    power = "power"
+    speed = "speed"
+    damage_taken = "damage_taken"  # <1 mult = armor, >1 = exposed
+
+
+class DefenseSubtype(StrEnum):
     shield = "shield"
     dodge = "dodge"
     reflect = "reflect"
-    buff = "buff"
-    debuff = "debuff"
-    heal = "heal"
+
+
+class EffectKind(StrEnum):
+    """The kinds of persistent effect that can sit in a player's effects list."""
+
+    dot = "dot"
+    hot = "hot"
+    stat = "stat"
+    defense = "defense"
+    control = "control"  # A.2 (stun); reserved
 
 
 class Template(StrEnum):
+    """Renderer hint for playback animation (loosely mapped from component kind)."""
+
     projectile = "projectile"
     beam = "beam"
     melee = "melee"
@@ -59,11 +84,6 @@ class Template(StrEnum):
     heal_glow = "heal_glow"
 
 
-class Stat(StrEnum):
-    power = "power"
-    speed = "speed"
-
-
 class Outcome(StrEnum):
     hit_knockback = "hit_knockback"
     blocked = "blocked"
@@ -71,10 +91,9 @@ class Outcome(StrEnum):
     dodged = "dodged"
     reflected = "reflected"
     healed = "healed"
-    buffed = "buffed"
-    debuffed = "debuffed"
-    defended = "defended"  # a defense action activated (priority tier)
-    fizzled = "fizzled"  # action did not resolve (actor KO'd first)
+    applied = "applied"  # a dot/hot/stat/defense effect took hold
+    ticked = "ticked"  # an over-time effect fired at start of turn
+    fizzled = "fizzled"  # component did nothing (e.g. cost/validation dropped it)
 
 
 class Shape(StrEnum):
@@ -93,36 +112,25 @@ class Size(StrEnum):
     large = "large"
 
 
-# Category membership and the deterministic subtype -> template mapping.
-SUBTYPE_CATEGORY: dict[Subtype, Category] = {
-    Subtype.projectile: Category.attack,
-    Subtype.beam: Category.attack,
-    Subtype.melee: Category.attack,
-    Subtype.aoe: Category.attack,
-    Subtype.shield: Category.defense,
-    Subtype.dodge: Category.defense,
-    Subtype.reflect: Category.defense,
-    Subtype.buff: Category.buff,
-    Subtype.debuff: Category.debuff,
-    Subtype.heal: Category.heal,
+# component kind -> renderer template (damage refines from Action.template)
+COMPONENT_TEMPLATE: dict[ComponentType, Template] = {
+    ComponentType.damage: Template.projectile,
+    ComponentType.heal: Template.heal_glow,
+    ComponentType.dot: Template.debuff_cloud,
+    ComponentType.hot: Template.heal_glow,
+    ComponentType.stat: Template.buff_aura,
+    ComponentType.defense: Template.shield_raise,
 }
 
-SUBTYPE_TEMPLATE: dict[Subtype, Template] = {
-    Subtype.projectile: Template.projectile,
-    Subtype.beam: Template.beam,
-    Subtype.melee: Template.melee,
-    Subtype.aoe: Template.aoe_burst,
-    Subtype.shield: Template.shield_raise,
-    Subtype.dodge: Template.dodge,
-    Subtype.reflect: Template.reflect,
-    Subtype.buff: Template.buff_aura,
-    Subtype.debuff: Template.debuff_cloud,
-    Subtype.heal: Template.heal_glow,
+DEFENSE_TEMPLATE: dict[DefenseSubtype, Template] = {
+    DefenseSubtype.shield: Template.shield_raise,
+    DefenseSubtype.dodge: Template.dodge,
+    DefenseSubtype.reflect: Template.reflect,
 }
 
 
 # ---------------------------------------------------------------------------
-# JudgedAction (JUDGE.md §4)
+# The Action contract (judge output)
 # ---------------------------------------------------------------------------
 
 
@@ -141,74 +149,77 @@ class Visual(BaseModel):
     primitives: list[Primitive] = Field(default_factory=list, max_length=4)
 
 
-class JudgedAction(BaseModel):
-    """One structured action parsed from a player's freeform prompt.
+class EffectComponent(BaseModel):
+    """One typed mechanical effect. The judge emits a permissive, flat shape (all
+    params optional); the server validates required-per-type, clamps ranges, and
+    drops anything invalid (see rules.normalize_components). ``extra="ignore"`` so
+    a stray param from the judge (e.g. reserved ``kind``/``amount``) is dropped,
+    never a 422.
+    """
 
-    `template` is normalized from `subtype` server-side. `stat` is meaningful
-    only for buff/debuff (which stat the effect shifts); it is coerced to None
-    for other categories. Mana cost is NOT part of this schema — the server
-    computes it from `power` + `category` (see rules.mana_cost).
+    model_config = ConfigDict(extra="ignore")
+
+    type: ComponentType
+    target: ComponentTarget = ComponentTarget.opponent
+    element: Element = Element.physical
+    power: int | None = None  # damage/heal/dot/hot/defense magnitude (1-10 scope)
+    magnitude: int | None = None  # stat: signed change to the target's stat
+    duration: int | None = None  # dot/hot/stat: turns the effect persists
+    stat: StatKind | None = None  # stat: which stat shifts
+    subtype: DefenseSubtype | None = None  # defense: shield/dodge/reflect
+
+
+class Action(BaseModel):
+    """A bundle of 1-3 effect components plus shared presentation fields.
+
+    Mana cost is NOT part of this schema — the server prices the whole bundle
+    (see rules.bundle_cost). ``components`` is capped/validated server-side before
+    it ever reaches the resolver.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    category: Category
-    subtype: Subtype
+    components: list[EffectComponent] = Field(default_factory=list)
     element: Element = Element.physical
-    power: int = Field(ge=1, le=10)
-    speed: int = Field(ge=1, le=10)
-    stat: Stat | None = None
-    template: Template | None = None
+    speed: int = Field(default=5, ge=1, le=10)
+    template: Template = Template.projectile
     visual: Visual = Field(default_factory=Visual)
     flavor_text: str = Field(default="", max_length=90)
 
-    @model_validator(mode="after")
-    def _normalize(self) -> JudgedAction:
-        expected_category = SUBTYPE_CATEGORY[self.subtype]
-        if self.category != expected_category:
-            raise ValueError(
-                f"subtype {self.subtype.value!r} belongs to category "
-                f"{expected_category.value!r}, not {self.category.value!r}"
-            )
-        # Template follows deterministically from subtype (server corrects).
-        self.template = SUBTYPE_TEMPLATE[self.subtype]
-        # `stat` only applies to buff/debuff; default to power, drop elsewhere.
-        if self.category in (Category.buff, Category.debuff):
-            self.stat = self.stat or Stat.power
-        else:
-            self.stat = None
-        return self
-
 
 # ---------------------------------------------------------------------------
-# Game state (SPEC.md §6) — alternating single-action turns (see DESIGN.md)
+# Game state — alternating single-action turns (see DESIGN.md)
 # ---------------------------------------------------------------------------
 
 Side = Literal["p1", "p2"]
 
 
 class ActiveEffect(BaseModel):
-    """An active buff (self) or debuff (on opponent). Shifts are signed magnitudes."""
+    """A persistent effect sitting on a player. It ticks/decrements on that
+    player's own turns. ``source`` is the caster (for over-time KO attribution).
+    Fields are populated per ``kind``; unused ones stay at their defaults.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    power_shift: int = 0
-    speed_shift: int = 0
+    kind: EffectKind
     turns_remaining: int
+    source: Side
+    label: str = ""
 
+    # dot / hot
+    per_turn: int = 0
+    element: Element = Element.physical
 
-class ActiveDefense(BaseModel):
-    """A raised defensive stance. Effective stats are FROZEN at cast time, since
-    the block happens on the opponent's turn. Consumed on hit, else expires at
-    the owner's next end-of-turn upkeep."""
+    # stat
+    stat: StatKind | None = None
+    magnitude: int = 0
 
-    model_config = ConfigDict(extra="forbid")
-
-    subtype: Subtype  # shield | dodge | reflect
-    element: Element
-    power: int  # effective power at cast
-    speed: int  # effective speed at cast
-    turns_remaining: int
+    # defense stance (effective stats FROZEN at cast — the block lands on the
+    # opponent's turn)
+    subtype: DefenseSubtype | None = None
+    power: int = 0
+    speed: int = 0
 
 
 class PlayerState(BaseModel):
@@ -217,11 +228,10 @@ class PlayerState(BaseModel):
     name: str = "Player"
     hp: int
     mana: int
-    # Only categories currently on cooldown appear; missing => available.
-    cooldowns: dict[Category, int] = Field(default_factory=dict)
-    active_buff: ActiveEffect | None = None
-    active_debuff: ActiveEffect | None = None
-    active_defense: ActiveDefense | None = None
+    # Only component-kinds currently on cooldown appear; missing => available.
+    # Keyed by the cooldownable kinds only ("heal", "defense", "control").
+    cooldowns: dict[str, int] = Field(default_factory=dict)
+    effects: list[ActiveEffect] = Field(default_factory=list)
 
 
 class GameState(BaseModel):
@@ -234,32 +244,35 @@ class GameState(BaseModel):
 
 
 class EffectSummary(BaseModel):
-    """Structured, narratable detail of a non-trivial result. Fields are populated
-    per kind (empower/hasten/weaken/slow/shield/dodge/reflect/heal); the client
-    templates a readable sentence from it."""
+    """Structured, narratable detail of a component's result. The client templates
+    a readable sentence from it. Fields are populated per kind."""
 
     model_config = ConfigDict(extra="forbid")
 
     kind: str
-    stat: Stat | None = None
+    stat: StatKind | None = None
     magnitude: int | None = None
     duration: int | None = None
+    per_turn: int | None = None
     absorbed: int | None = None
+    label: str = ""
 
 
 class ResolutionEvent(BaseModel):
-    """The result of one action, for playback (SPEC.md §6)."""
+    """One playback beat: an over-time tick, or one resolved action component."""
 
     model_config = ConfigDict(extra="forbid")
 
-    actor: Side
+    actor: Side  # who caused this beat (caster; for a tick, the effect's source)
     target: Side
-    template: Template
+    kind: str  # component type, or "dot_tick" / "hot_tick"
+    element: Element = Element.physical
     outcome: Outcome
-    damage: int = 0
+    amount: int = 0  # hp delta magnitude (damage dealt or hp healed), always >= 0
     effect: EffectSummary | None = None
-    narration: str = ""
-    # Post-event snapshot for the renderer: display HP/mana of both players.
+    template: Template | None = None
+    narration: str = ""  # bundle flavor_text, set on the primary beat only
+    # Post-beat snapshot for the renderer: display HP/mana of both players.
     state_delta: dict[str, int] = Field(default_factory=dict)
 
 

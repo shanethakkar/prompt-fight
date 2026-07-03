@@ -17,7 +17,7 @@ from app.judge import judge
 from app.models import ResolveResult
 from app.moderation import moderate
 from app.resolver import initial_game, resolve_turn
-from app.rules import mana_cost
+from app.rules import bundle_cost, kind_cooldowns
 from app.schemas import (
     JudgeRequest,
     JudgeResponse,
@@ -81,12 +81,14 @@ def api_judge(req: JudgeRequest) -> JudgeResponse:
         )
 
     action = judge(req.prompt, balance)
-    cost = mana_cost(action, balance)
+    cost = bundle_cost(action.components, balance)
+    pending_cds = kind_cooldowns(action.components, balance)
+    on_cooldown = any(req.player.cooldowns.get(kind, 0) > 0 for kind in pending_cds)
     return JudgeResponse(
         action=action,
         mana_cost=cost,
         affordable=req.player.mana >= cost,
-        on_cooldown=req.player.cooldowns.get(action.category, 0) > 0,
+        on_cooldown=on_cooldown,
         rewrites_remaining=rewrites_after,
     )
 

@@ -1,91 +1,119 @@
 """The judge system prompt and structured-output tool schema.
 
-`JUDGE_SYSTEM` mirrors JUDGE.md §2/§3/§5/§6/§8 — keep the two in sync; the eval
-suite (tests/test_judge_eval.py) is the regression guard. `EMIT_ACTION_TOOL` is
-the forced tool the judge must call; its enums are built from the model enums so
-they cannot drift from the code.
+`JUDGE_SYSTEM` mirrors JUDGE.md — keep the two in sync; the eval suite
+(tests/test_judge_eval.py) is the regression guard. `EMIT_ACTION_TOOL` is the
+forced tool the judge must call; a player's freeform prompt becomes a small
+BUNDLE of typed effect components. The judge classifies and scores only — the
+server prices the bundle and does all combat math. Enums are built from the
+model enums so they cannot drift from the code.
 """
 
 from __future__ import annotations
 
-from app.models import Category, Element, Shape, Size, Stat, Subtype
+from app.models import (
+    ComponentTarget,
+    ComponentType,
+    DefenseSubtype,
+    Element,
+    Shape,
+    Size,
+    StatKind,
+    Template,
+)
 
 JUDGE_SYSTEM = """\
 You are the judge for Stickmancer, a turn-based stick-figure duel. A player types \
-a freeform attack in plain language. Your only job is to classify it into ONE \
-structured action by calling the `emit_action` tool. You never do arithmetic \
-(damage, mana cost) — deterministic server code handles all of that.
+a freeform attack in plain language. Your only job is to translate it into a small \
+BUNDLE of mechanical effects by calling the `emit_action` tool. You never do \
+arithmetic (damage, mana cost) — deterministic server code handles all of that.
+
+Flavor is infinite; the mechanics are a small fixed vocabulary. A "magic wand that \
+confuses their zombie", a "sand monster that blinds the archer", and "I just punch \
+them" are all combinations of the same handful of component types below. Capture the \
+INTENT with components; keep the flavor in `flavor_text`.
 
 CORE RULES
-1. Always call the `emit_action` tool exactly once. Do not write prose.
-2. Classify into exactly one category and one subtype from the closed sets. Never \
-invent categories, elements, subtypes, or fields.
-   - subtype must belong to its category:
-     attack -> projectile | beam | melee | aoe
-     defense -> shield | dodge | reflect
-     buff -> buff ; debuff -> debuff ; heal -> heal
-3. Score `power` (1-10) and `speed` (1-10) strictly from the rubric below, based on \
-the prompt's CLAIMED SCOPE, not its wording flair. When in doubt between two power \
-values, pick the lower. Similar prompts must score similarly.
-4. For buff/debuff ONLY, set `stat` to the stat the effect shifts: `speed` when the \
-prompt is about hastening/slowing/quickness, otherwise `power`. Omit `stat` for all \
-other categories.
-5. Fill `visual` with 1-4 shape primitives approximating what the player described.
-6. Write `flavor_text`: one short, punchy third-person narration line (max 90 chars).
-7. If the prompt is incoherent or not an action, emit a harmless flail: \
-category attack, subtype melee, power 1, speed 5, element physical.
+1. Always call `emit_action` exactly once. Never write prose.
+2. Emit 1 to 3 components — the most mechanically prominent effects the prompt \
+describes. Extra flourishes are flavor with no component. When in doubt, emit fewer.
+3. Never invent component types, elements, stats, or fields outside the closed sets.
+4. Score conservatively. When torn between two magnitudes, pick the lower.
+5. Similar prompts must produce similar bundles.
+6. Write `flavor_text`: one punchy third-person line (max 90 chars). Set `element`, \
+`speed`, and `template` for the overall visual.
+7. If the prompt is incoherent or not an action, emit a single small melee `damage` \
+component, power 1.
 
-SINGLE-EFFECT EXTRACTION (anti-stacking)
-The action holds exactly ONE effect. When a prompt asks for several \
-("a shield AND a sword AND 50 health"), pick the SINGLE most mechanically prominent \
-effect (the first clearly actionable one if prominence ties); everything else is \
-flavor with zero mechanical weight. Renaming a mechanic doesn't create a new one: \
-"an indestructible fortress" is just a shield.
+COMPONENT TYPES (each component has a `type` and a `target`: "self" or "opponent")
+- damage   — instant hit. target opponent. Needs `power` (1-10) and `element`.
+- heal     — instant self-heal. target self. Needs `power` (1-10).
+- dot      — damage OVER TIME: poison, burn, bleed, acid. target opponent. Needs \
+`power` (per-tick size, 1-10), `duration` (turns, 1-4), `element`. Use this for \
+"bleed out slowly", "keeps burning", "poison"— NOT a one-time hit.
+- hot      — heal over time: regeneration. target self. Needs `power`, `duration`.
+- stat     — a persistent stat change. Needs `stat`, a signed `magnitude`, and \
+`duration`. `stat` is one of:
+     power         (attack strength)
+     speed         (how fast / hard to dodge)
+     damage_taken  (a multiplier on incoming damage: LOWER = armored, HIGHER = exposed)
+  `magnitude` is the SIGNED change to the TARGET'S stat (range about -8..+8):
+     to HELP yourself  -> target self,     +power / +speed / -damage_taken (armor)
+     to HURT the enemy -> target opponent, -power / -speed / +damage_taken (expose)
+  Examples: plate armor = stat damage_taken -4 self; weaken their blows = stat power \
+-4 opponent; freeze/slow them = stat speed -6 opponent; berserker strength = stat \
+power +5 self.
+- defense  — raise a defensive stance for the opponent's next turn. target self. \
+Needs `subtype` (shield | dodge | reflect), `power`, `element`. A shield absorbs, a \
+dodge evades a slower hit, a reflect bounces a weaker hit back.
 
-POWER (from claimed scope)
-1-2  trivial/mundane: slap, pebble toss, small poke
-3-4  modest weapon or minor magic: sword slash, small fireball, light shield
-5-6  strong martial/magical: big fireball, lightning strike, tower shield
-7-8  dramatic, battlefield-scale: meteor, tidal wave, fortress wall
-9-10 apocalyptic/cosmic: black hole, sun drop, "destroy everything"
+CHOOSING dot VS stat: if the prompt describes ongoing HP loss ("bleed", "burn", \
+"poison courses through them"), use `dot`. If it describes making them WEAKER or \
+SLOWER (not losing HP), use `stat`. "Blind them" has no HP loss and no true accuracy \
+stat yet — approximate as a `speed` debuff on the opponent.
 
-SPEED (from described delivery)
-8-10 instant/darting: jab, dart, finger-snap zap
-5-7  normal swing/cast: sword slash, thrown fireball
-3-4  wind-up/summoned: summoning circle, charging beam
-1-2  massive/slow: meteor falling, tectonic attack
-Big scope implies low speed unless the prompt explicitly claims speed. An "instant \
-black hole" is still power 10; its speed can be at most 4 for scope >= 9.
+POWER / MAGNITUDE (from claimed scope)
+1-2  trivial: slap, pebble, a weak poison
+3-4  modest: sword slash, small fireball, light armor, mild slow
+5-6  strong: big fireball, tower shield, heavy poison, real weaken
+7-8  dramatic, battlefield-scale: meteor, tidal wave, frozen-solid
+9-10 apocalyptic (damage only): black hole, sun drop
+DURATION: brief 1-2, lingering 3, long-lasting 4 (capped at 4).
+
+SPEED (whole action; from delivery)
+8-10 instant/darting jab or zap; 5-7 normal swing/cast; 3-4 wind-up/summon; \
+1-2 massive/slow. Big scope implies low speed unless speed is explicitly claimed.
 
 ELEMENTS
-Closed set: physical, fire, water, nature, lightning. Default to the element the \
-prompt implies (fire=flame/heat, water=ice/wave, nature=plant/earth/poison, \
-lightning=electric); use physical for mundane force with no element.
+Closed set: physical, fire, water, nature, lightning. fire=flame/heat, water=ice/wave, \
+nature=plant/earth/poison, lightning=electric; physical for mundane force. dot element \
+sets its flavor (fire=burn, nature=poison, physical=bleed, water=chill, lightning=shock).
 
-VISUAL PRIMITIVES
-Compose 1-4 primitives sketching the thing: sword = large line + small rect \
-crossguard; fireball = medium orange circle + small triangle tail; lightning = \
-large yellow zigzag; shield = large rect or ring; heal = green star/ring. Colors \
-default to the element palette (fire=orange/red, water=blue, nature=green, \
-lightning=yellow, physical=gray) unless the player specifies otherwise.
+TEMPLATE (overall visual): projectile | beam | melee | aoe_burst | shield_raise | \
+dodge | reflect | buff_aura | debuff_cloud | heal_glow.
+
+BUNDLES (multiple effects in one prompt — this is encouraged now)
+"I heal to full AND raise a shield" -> [heal self p6] + [defense shield self p5]
+"I swing my flaming sword while buffing my speed" -> [damage fire p5] + [stat speed +3 self]
+"I put on plate armor and draw my sword" -> [stat damage_taken -4 self] + [damage p5]
+Cap at 3. A prompt asking for 8 effects still yields at most the 3 most prominent.
 
 EXAMPLES
-"I hurl a massive fireball at my opponent"
--> attack/projectile/fire, power 6, speed 6, "A roaring fireball screams across the arena!"
-"I call a lightning bolt down from the sky"
--> attack/beam/lightning, power 7, speed 7, "The sky splits - lightning hammers down!"
-"Give me a shield and a sword and a tank and 50 more health"
--> defense/shield/physical, power 4, speed 6, "A shield snaps up - the rest was wishful thinking."
-"I collapse a black hole on top of them"
--> attack/aoe/physical, power 10, speed 2, "Space itself buckles as a black hole yawns open."
-"I chug a healing potion"
--> heal/heal/nature, power 4, speed 7, "A quick swig - wounds knit closed in a green glow."
-"I channel raw power into my fists" (buff, stat power)
--> buff/buff/physical, power 5, speed 4, stat power, "Red energy crackles around clenched fists."
-"I hurl mud in their eyes to slow them down" (debuff, stat speed)
--> debuff/debuff/nature, power 4, speed 6, stat speed, "Mud fouls the enemy's footing."
-"asdfjkl banana"
--> attack/melee/physical, power 1, speed 5, "A confused flail connects with nothing in particular."
+"I hurl a massive fireball" -> [damage fire power 6], element fire, speed 6, \
+template projectile, "A roaring fireball screams across the arena!"
+"I poison their bloodstream so they bleed out slowly" -> [dot nature power 5 \
+duration 3 opponent], element nature, "Venom crawls through their veins."
+"I set them on fire" -> [dot fire power 5 duration 3 opponent], "Flames catch and spread."
+"I put on a full suit of enchanted plate armor" -> [stat damage_taken -4 duration 4 \
+self], template shield_raise, "Plate clangs shut — blows will glance off."
+"I freeze them solid so they can't move" -> [stat speed -6 duration 2 opponent], \
+element water, "Ice locks their limbs in place."
+"I blind them by throwing sand in their eyes" -> [stat speed -3 duration 2 opponent], \
+"Grit stings their eyes — they flail half-blind."
+"I chug a potion and raise my guard" -> [heal power 4 self] + [defense shield power 4 \
+self], "A swig and a braced shield."
+"I collapse a black hole on them" -> [damage physical power 10], speed 2, \
+template aoe_burst, "Space buckles into a black hole."
+"asdfjkl banana" -> [damage physical power 1], "A confused flail hits nothing."
 """
 
 
@@ -93,37 +121,66 @@ def _values(enum_cls) -> list[str]:
     return [m.value for m in enum_cls]
 
 
+_COMPONENT_SCHEMA: dict = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "type": {"type": "string", "enum": _values(ComponentType)},
+        "target": {
+            "type": "string",
+            "enum": _values(ComponentTarget),
+            "description": "'self' or 'opponent'. damage/dot hit opponent; heal/defense are self.",
+        },
+        "element": {"type": "string", "enum": _values(Element)},
+        "power": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10,
+            "description": "Scope for damage/heal/dot/hot/defense (per-tick for dot/hot).",
+        },
+        "magnitude": {
+            "type": "integer",
+            "minimum": -8,
+            "maximum": 8,
+            "description": "stat only: signed change to the target's stat.",
+        },
+        "duration": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4,
+            "description": "Turns a dot/hot/stat effect persists.",
+        },
+        "stat": {
+            "type": "string",
+            "enum": _values(StatKind),
+            "description": "stat only: which stat shifts.",
+        },
+        "subtype": {
+            "type": "string",
+            "enum": _values(DefenseSubtype),
+            "description": "defense only: shield | dodge | reflect.",
+        },
+    },
+    "required": ["type"],
+}
+
+
 EMIT_ACTION_TOOL: dict = {
     "name": "emit_action",
-    "description": "Emit the one structured action parsed from the player's prompt.",
+    "description": "Emit the bundle of 1-3 effect components parsed from the player's prompt.",
     "input_schema": {
         "type": "object",
         "additionalProperties": False,
         "properties": {
-            "category": {"type": "string", "enum": _values(Category)},
-            "subtype": {
-                "type": "string",
-                "enum": _values(Subtype),
-                "description": "Must belong to `category` (see rules).",
+            "components": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 3,
+                "items": _COMPONENT_SCHEMA,
             },
             "element": {"type": "string", "enum": _values(Element)},
-            "power": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 10,
-                "description": "Magnitude from the rubric (claimed scope).",
-            },
-            "speed": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 10,
-                "description": "Delivery speed from the rubric.",
-            },
-            "stat": {
-                "type": "string",
-                "enum": _values(Stat),
-                "description": "Only for buff/debuff: which stat shifts. Omit otherwise.",
-            },
+            "speed": {"type": "integer", "minimum": 1, "maximum": 10},
+            "template": {"type": "string", "enum": _values(Template)},
             "visual": {
                 "type": "object",
                 "additionalProperties": False,
@@ -137,10 +194,7 @@ EMIT_ACTION_TOOL: dict = {
                             "properties": {
                                 "shape": {"type": "string", "enum": _values(Shape)},
                                 "size": {"type": "string", "enum": _values(Size)},
-                                "color": {
-                                    "type": "string",
-                                    "description": "Hex like #RRGGBB.",
-                                },
+                                "color": {"type": "string", "description": "Hex like #RRGGBB."},
                                 "offset": {
                                     "type": "array",
                                     "items": {"type": "integer"},
@@ -159,6 +213,6 @@ EMIT_ACTION_TOOL: dict = {
                 "description": "One punchy third-person line, max 90 chars.",
             },
         },
-        "required": ["category", "subtype", "element", "power", "speed", "flavor_text"],
+        "required": ["components", "element", "speed", "flavor_text"],
     },
 }

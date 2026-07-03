@@ -1,139 +1,107 @@
 # JUDGE.md — Judge Rubric, Schema, and Evals
 
-The judge is the game's only AI component: an LLM that converts a freeform player prompt into one structured `JudgedAction`. It classifies and scores — it never computes mana cost, damage, or any balance-affecting arithmetic (all of that is deterministic server code).
+The judge is the game's only AI component: an LLM that converts a freeform player prompt into one structured **`Action`** — a small bundle of typed effect components. It classifies and scores — it never computes mana cost, damage, or any balance-affecting arithmetic (all of that is deterministic server code).
 
 > Any change to this file or the judge system prompt requires the eval suite (§7) to pass before merging. See `CLAUDE.md` testing gates.
 
 ## 1. Model configuration
 
-- Model: config value (`balance.json: judge_model`), default a small fast cloud model (Claude Haiku via Anthropic API; Groq-hosted small model acceptable).
+- Model: config value (`balance.json: judge_model`), default a small fast cloud model (Claude Haiku via Anthropic API).
 - `temperature = 0` — identical prompts must judge identically (prevents cost-preview fishing).
-- Structured output enforced via **forced tool-use**: the judge must call a single `emit_action` tool (`tool_choice` forces it) whose input schema mirrors §4. A malformed/absent tool call is retried once, then falls back to a "sputter" no-op (attack/melee, power 1, speed 5, physical).
-- The judge system prompt lives in `backend/app/judge_prompt.py` (`JUDGE_SYSTEM`), which mirrors this file: rules (§2–§3), single-effect (§3), primitives (§5), rubric (§6), and few-shot examples (§8). Keep the two in sync; the eval suite (§7) is the regression guard.
-- **Category reconciliation:** the server trusts `subtype` and derives `category` from it (`category = SUBTYPE_CATEGORY[subtype]`), so a judge category/subtype mismatch self-corrects instead of being rejected.
+- Structured output enforced via **forced tool-use**: the judge must call a single `emit_action` tool (`tool_choice` forces it) whose input schema mirrors §4. A malformed/absent tool call is retried once, then falls back to a "sputter" no-op (a single power-1 melee `damage` component).
+- The judge system prompt lives in `backend/app/judge_prompt.py` (`JUDGE_SYSTEM`), which mirrors this file. Keep the two in sync; the eval suite (§7) is the regression guard.
+- **Server-side normalization is the safety net.** The judge's component list is *permissive* (all params optional). `rules.normalize_components` validates required-per-type, clamps every numeric to its balance range, enforces the structural caps (§3), and drops anything invalid — so a judge mistake degrades gracefully instead of crashing or exploiting.
 
 ## 2. Judge instructions (core rules)
 
-1. Output exactly one `JudgedAction` conforming to the schema. No prose outside the JSON.
-2. Classify into exactly one category/subtype from the closed sets. Never invent categories, elements, or fields.
-3. Score `power` and `speed` strictly from the rubric in §6, based on the prompt's *claimed scope*, not its wording flair.
-4. For **buff/debuff only**, set `stat` to the stat the effect shifts: `speed` when the prompt is about hastening/slowing/quickness, otherwise `power` (the default). Leave `stat` null for every other category.
-5. Fill `visual` with 1–4 shape primitives approximating what the player described (§5).
-6. Write `flavor_text`: one short, punchy third-person narration line (max 90 chars) for playback.
-7. If the prompt is incoherent or not an action, return category `attack`, subtype `melee`, power 1, speed 5, physical — a harmless flail — with fitting flavor text.
+1. Always call `emit_action` exactly once. No prose.
+2. Emit **1–3 components** — the most mechanically prominent effects the prompt describes. Extra flourishes are flavor with no component. When in doubt, emit fewer.
+3. Never invent component types, elements, stats, or fields outside the closed sets.
+4. Score conservatively (claimed scope, not wording flair). When torn between two magnitudes, pick the lower. Similar prompts must produce similar bundles.
+5. Fill `element`, `speed`, `template`, and `flavor_text` for the overall visual (§5/§6). `flavor_text`: one punchy third-person line, max 90 chars.
+6. If the prompt is incoherent or not an action, emit a single small melee `damage` component, power 1.
 
-## 3. Single-effect extraction (anti-stacking)
+## 3. Components and bundling (flavor infinite, mechanics small)
 
-The schema structurally holds one effect. When a prompt requests multiple effects, select the **single most mechanically prominent** one (the first clearly actionable effect if prominence ties) and treat all others as flavor text with zero mechanical weight.
+Capture INTENT with components; keep flavor in `flavor_text`. A "magic wand that confuses their zombie", a "sand monster that blinds the archer", and "I punch them" are all combinations of the same handful of component types. Each component has a `type` and a `target` (`self` | `opponent`):
 
-- "Give me a shield, a sword, a tank, and 50 more health" → Defense/shield (first prominent effect); sword/tank/health are flavor.
-- "I throw a fireball while healing myself" → Attack/projectile/fire; heal is flavor.
-- Renaming mechanics doesn't create mechanics: "an indestructible fortress" is Defense/shield with power capped at 10 like everything else.
+- **`damage`** (opponent) — instant hit. `power` 1–10, `element`.
+- **`heal`** (self) — instant self-heal. `power` 1–10.
+- **`dot`** (opponent) — damage over time (poison/burn/bleed). `power` (per-tick), `duration` 1–4, `element`. Use for ongoing HP loss — *not* a one-time hit.
+- **`hot`** (self) — heal over time (regen). `power`, `duration`.
+- **`stat`** (either) — persistent stat shift. `stat` ∈ {`power`, `speed`, `damage_taken`}, signed `magnitude` (about −8..+8), `duration`. `magnitude` is the signed change to the **target's** stat: help yourself (`+power`/`+speed`/`−damage_taken` armor), hurt the enemy (`−power`/`−speed`/`+damage_taken` expose).
+- **`defense`** (self) — a stance for the opponent's next turn. `subtype` (shield/dodge/reflect), `power`, `element`.
 
-## 4. JudgedAction schema
+**`dot` vs `stat`:** ongoing HP loss ("bleed", "burn", "poison") → `dot`. Making them weaker/slower (no HP loss) → `stat`. **Deferred approximations** (until later phases add them): "freeze/stun" → a heavy `speed` debuff; "blind" → a `speed` debuff on the opponent; "drain their mana" → nearest available.
+
+**Bundles are encouraged.** "I heal to full and raise a shield" → `heal(self)` + `defense(shield, self)`; "I swing my flaming sword while buffing my speed" → `damage(fire)` + `stat(speed, +, self)`. A prompt asking for 8 effects still yields at most the 3 most prominent (the server truncates regardless).
+
+## 4. `Action` schema
 
 Defined once here; mirrored as a Pydantic model (backend) and TypeScript type (frontend) — all three change together or not at all.
 
 ```json
 {
-  "category": "attack | defense | buff | debuff | heal",
-  "subtype": "projectile | beam | melee | aoe | shield | dodge | reflect | buff | debuff | heal",
+  "components": [
+    {
+      "type": "damage | heal | dot | hot | stat | defense",
+      "target": "self | opponent",
+      "element": "physical | fire | water | nature | lightning",
+      "power": 1-10,               // damage/heal/dot/hot/defense
+      "magnitude": -8..8,          // stat: signed change to target's stat
+      "duration": 1-4,             // dot/hot/stat
+      "stat": "power | speed | damage_taken",   // stat only
+      "subtype": "shield | dodge | reflect"     // defense only
+    }
+  ],
   "element": "physical | fire | water | nature | lightning",
-  "power": 1-10,
   "speed": 1-10,
-  "stat": "power | speed | null",
   "template": "projectile | beam | melee | aoe_burst | shield_raise | dodge | reflect | buff_aura | debuff_cloud | heal_glow",
-  "visual": {
-    "primitives": [
-      { "shape": "circle | rect | triangle | line | zigzag | ring | star",
-        "size": "small | medium | large",
-        "color": "#RRGGBB",
-        "offset": [x, y] }
-    ]
-  },
+  "visual": { "primitives": [ { "shape": "...", "size": "...", "color": "#RRGGBB", "offset": [x, y] } ] },
   "flavor_text": "string, max 90 chars"
 }
 ```
 
-Notes: `subtype` must belong to `category`. `template` follows deterministically from `subtype` (server derives it — **not** in the `emit_action` tool schema). `stat` applies **only to buff/debuff** — set it to `power` or `speed` for the stat the effect shifts (default `power` if unclear); it is `null`/omitted for all other categories. `mana_cost` is **not** in the schema — the server computes it from `power` + `category` per `balance.json`. The `emit_action` tool the judge calls asks for `category`, `subtype`, `element`, `power`, `speed`, `stat`, `visual`, `flavor_text` (everything above except `template`/`mana_cost`).
+Notes: `components` holds 1–3 entries (the tool caps `maxItems` at 3; the server enforces ≤1 `damage`). Only `type` is required per component — every other param is optional and filled/clamped server-side. `mana_cost` is **not** in the schema — the server prices the whole bundle (`rules.bundle_cost`) from component weights + a super-additive count surcharge.
 
 ## 5. Visual primitives guidance
 
-Compose 1–4 primitives to sketch the described thing: sword = large `line` + small `rect` crossguard; fireball = medium orange `circle` + small `triangle` tail; lightning = large yellow `zigzag`; shield = large `rect` or `ring`; heal = green `star`/`ring`. Colors should default to the element's palette (fire=orange/red, water=blue, nature=green, lightning=yellow, physical=gray) unless the player specifies otherwise.
+Compose 1–4 primitives to sketch the described thing: sword = large `line` + small `rect` crossguard; fireball = medium orange `circle` + small `triangle` tail; lightning = large yellow `zigzag`; shield = large `rect` or `ring`; heal = green `star`/`ring`. Colors default to the element's palette (fire=orange/red, water=blue, nature=green, lightning=yellow, physical=gray) unless the player specifies otherwise.
 
 ## 6. Scoring rubric
 
-**Power (from claimed scope):**
-| Power | Scope of claim | Examples |
+**Power / magnitude (from claimed scope):**
+| Level | Scope | Examples |
 |---|---|---|
-| 1–2 | Trivial/mundane | slap, pebble toss, small poke |
-| 3–4 | Modest weapon or minor magic | sword slash, small fireball, light shield |
-| 5–6 | Strong martial/magical | big fireball, lightning strike, tower shield |
-| 7–8 | Dramatic, battlefield-scale | meteor, tidal wave, fortress wall |
-| 9–10 | Apocalyptic/cosmic claims | black hole, sun drop, "destroy everything" |
+| 1–2 | Trivial | slap, pebble, weak poison |
+| 3–4 | Modest | sword slash, small fireball, light armor, mild slow |
+| 5–6 | Strong | big fireball, tower shield, heavy poison, real weaken |
+| 7–8 | Battlefield-scale | meteor, tidal wave, frozen-solid |
+| 9–10 | Apocalyptic (damage only) | black hole, sun drop |
 
-**Speed (from described delivery):**
-| Speed | Delivery | Examples |
-|---|---|---|
-| 8–10 | Instant/darting | jab, dart, finger-snap zap |
-| 5–7 | Normal swing/cast | sword slash, thrown fireball |
-| 3–4 | Wind-up/summoned | summoning circle, charging beam |
-| 1–2 | Massive/slow | meteor falling, tectonic attack |
+**Duration:** brief 1–2, lingering 3, long-lasting 4 (capped at 4). **Speed** (whole action): 8–10 instant/darting, 5–7 normal swing/cast, 3–4 wind-up/summon, 1–2 massive/slow. Big scope implies low speed unless speed is explicitly claimed.
 
-Big scope naturally implies low speed; the judge should reflect that unless the prompt explicitly claims speed (which raises the power interpretation ceiling — "an instant black hole" is still power 10, speed can be at most 4 for scope ≥ 9; enforce this cap).
+**Elements:** fire=flame/heat, water=ice/wave, nature=plant/earth/poison, lightning=electric, physical=mundane force. A `dot`'s element sets its flavor (fire=burn, nature=poison, physical=bleed, water=chill, lightning=shock).
 
-**Consistency rule:** similar prompts must score similarly. When in doubt between two power values, pick the lower.
+**Consistency rule:** similar prompts must score similarly. When in doubt, pick lower.
 
 ## 7. Eval suite
 
-`backend/tests/fixtures/judge_eval.json`: ≥ 30 fixture prompts, each with expected `category`, `element`, and an inclusive `power` range (±1 tolerance). Run with pytest against the live judge at temperature 0. Required coverage:
+`backend/tests/fixtures/judge_eval.json`: fixture prompts, each asserting on the emitted component bundle via optional keys (`types_exact`, `contains`, `excludes`, `min/max_components`, `element`, `power`, and per-type `checks` on stat/target/magnitude/power/duration). Run with pytest against the live judge at temperature 0 (`uv run pytest -m live`). Required coverage:
 
-- ≥ 2 prompts per category (10+)
-- ≥ 4 anti-stacking greedy prompts (must yield exactly one effect, expected category asserted)
-- ≥ 3 absurd-scope prompts (must land power 9–10, not error)
-- ≥ 2 incoherent prompts (must produce the harmless-flail fallback)
-- ≥ 3 near-duplicate pairs (must judge into identical category and power)
-- ≥ 2 buff/debuff prompts asserting `stat` — at least one `power` and one `speed`
-- Grow the file whenever playtesting reveals an exploit or misjudgment (M6 balance pass).
+- Each component type in isolation (damage/heal/dot/hot; stat × power/speed/damage_taken; defense × shield/dodge/reflect).
+- The stress prompts that used to flatten: poison → `dot`, plate armor → persistent `stat(damage_taken, −)`, "heal AND shield" → 2 components, freeze → heavy speed debuff, blind → opponent stat.
+- Multi-effect bundles (must emit ≥ 2 components).
+- Count-restraint prompts ("give me 8 things") — must yield ≤ `max_components`.
+- Near-duplicate pairs — must produce the same component-type multiset.
+- Grow the file whenever playtesting reveals an exploit or misjudgment.
 
 ## 8. Few-shot examples (included in judge system prompt)
 
-**"I hurl a massive fireball at my opponent"**
-```json
-{"category":"attack","subtype":"projectile","element":"fire","power":6,"speed":6,"template":"projectile","visual":{"primitives":[{"shape":"circle","size":"medium","color":"#FF6A00","offset":[0,0]},{"shape":"triangle","size":"small","color":"#FFB300","offset":[-12,0]}]},"flavor_text":"A roaring fireball screams across the arena!"}
-```
-
-**"I call a lightning bolt down from the sky"**
-```json
-{"category":"attack","subtype":"beam","element":"lightning","power":7,"speed":7,"template":"beam","visual":{"primitives":[{"shape":"zigzag","size":"large","color":"#FFE13A","offset":[0,-40]}]},"flavor_text":"The sky splits — lightning hammers down!"}
-```
-
-**"Give me a shield and a sword and a tank and 50 more health"**
-```json
-{"category":"defense","subtype":"shield","element":"physical","power":4,"speed":6,"template":"shield_raise","visual":{"primitives":[{"shape":"rect","size":"large","color":"#9AA0A6","offset":[10,0]}]},"flavor_text":"A shield snaps up — the rest was wishful thinking."}
-```
-
-**"I collapse a black hole on top of them"**
-```json
-{"category":"attack","subtype":"aoe","element":"physical","power":10,"speed":2,"template":"aoe_burst","visual":{"primitives":[{"shape":"circle","size":"large","color":"#1A1A1A","offset":[0,0]},{"shape":"ring","size":"large","color":"#7B2FF7","offset":[0,0]}]},"flavor_text":"Space itself buckles as a black hole yawns open."}
-```
-
-**"I chug a healing potion"**
-```json
-{"category":"heal","subtype":"heal","element":"nature","power":4,"speed":7,"template":"heal_glow","visual":{"primitives":[{"shape":"star","size":"small","color":"#35C759","offset":[0,-20]},{"shape":"ring","size":"medium","color":"#8CE99A","offset":[0,0]}]},"flavor_text":"A quick swig — wounds knit closed in a green glow."}
-```
-
-**"I channel raw power into my fists"** (buff, power)
-```json
-{"category":"buff","subtype":"buff","element":"physical","power":5,"speed":4,"stat":"power","template":"buff_aura","visual":{"primitives":[{"shape":"ring","size":"medium","color":"#FF4D4D","offset":[0,0]}]},"flavor_text":"Red energy crackles around clenched fists."}
-```
-
-**"I hurl mud in their eyes to slow them down"** (debuff, speed)
-```json
-{"category":"debuff","subtype":"debuff","element":"nature","power":4,"speed":6,"stat":"speed","template":"debuff_cloud","visual":{"primitives":[{"shape":"circle","size":"medium","color":"#8B5A2B","offset":[0,0]}]},"flavor_text":"A splatter of mud fouls the enemy's footing."}
-```
-
-**"asdfjkl banana"**
-```json
-{"category":"attack","subtype":"melee","element":"physical","power":1,"speed":5,"template":"melee","visual":{"primitives":[{"shape":"line","size":"small","color":"#9AA0A6","offset":[8,0]}]},"flavor_text":"A confused flail connects with nothing in particular."}
-```
+- **"I hurl a massive fireball"** → `[damage fire power 6]`, element fire, speed 6, template projectile.
+- **"I poison their bloodstream so they bleed out slowly"** → `[dot nature power 5 duration 3 opponent]`.
+- **"I put on a full suit of enchanted plate armor"** → `[stat damage_taken −4 duration 4 self]`, template shield_raise.
+- **"I freeze them solid so they can't move"** → `[stat speed −6 duration 2 opponent]`, element water.
+- **"I heal myself to full and raise a shield"** → `[heal power 6 self] + [defense shield power 5 self]`.
+- **"I collapse a black hole on them"** → `[damage physical power 10]`, speed 2, template aoe_burst.
+- **"asdfjkl banana"** → `[damage physical power 1]` (the sputter).

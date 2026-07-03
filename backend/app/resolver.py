@@ -1,11 +1,21 @@
-"""The pure combat resolver — alternating single-action turns (see DESIGN.md).
+"""The pure combat resolver — alternating single-action turns with an effect
+grammar (DESIGN.md §3).
 
-`resolve_turn(state, action, balance)` resolves ONE action for `state.active`,
-against the current state (including the opponent's raised defensive stance),
-then advances the turn. Pure: no I/O, input untouched (deep-copied), one event
-out. The M1 damage/type/effect math (rules.py) is reused; only the turn
-orchestration changed (no simultaneity → no speed-ordering, snapshot-delta,
-double-KO tiebreak, or defense-priority tier). See GAME_MECHANICS.md §7.
+`resolve_turn(state, action, balance)` resolves ONE bundle of effect components
+for `state.active` and advances the turn. Pure: no I/O, input untouched
+(deep-copied). The turn has three phases (plan rule 5):
+
+  START  tick this player's dots/hots (magnitudes frozen at application), then
+         check for a KO — a poison can drop the active player before they act,
+         handing the win to the effect's source.
+  ACT    apply each component: instant damage/heal, an over-time dot/hot, a
+         persistent stat shift, or a raised defensive stance. Opponent-targeted
+         effects land immediately; self-targeted ones are staged.
+  END    decrement only this player's effects (use-before-decrement), install
+         the staged self-effects, tick cooldowns, regen mana.
+
+Each tick and each component becomes one ResolutionEvent, so a single turn can
+emit several playback beats.
 """
 
 from __future__ import annotations
@@ -14,26 +24,30 @@ from typing import Literal
 
 from app.config import BalanceConfig
 from app.models import (
-    ActiveDefense,
+    DEFENSE_TEMPLATE,
+    Action,
     ActiveEffect,
-    Category,
+    ComponentTarget,
+    ComponentType,
+    DefenseSubtype,
+    EffectComponent,
+    EffectKind,
     EffectSummary,
+    Element,
     GameState,
-    JudgedAction,
     Outcome,
     PlayerState,
     ResolutionEvent,
     ResolveResult,
     Side,
-    Stat,
-    Subtype,
+    Template,
 )
 from app.rules import (
-    buff_shift,
-    category_cooldown,
+    bundle_cost,
+    damage_taken_mult,
     effective_power,
     effective_speed,
-    mana_cost,
+    kind_cooldowns,
     type_multiplier,
 )
 
@@ -68,38 +82,49 @@ def _higher_hp(p1_hp: int, p2_hp: int) -> Side | Literal["draw"]:
     return "draw"
 
 
-def _attack(
+def _stance(player: PlayerState) -> ActiveEffect | None:
+    return next((e for e in player.effects if e.kind is EffectKind.defense), None)
+
+
+def _apply_damage(
     a_side: Side,
     o_side: Side,
+    active: PlayerState,
     opponent: PlayerState,
-    action: JudgedAction,
-    eff_power: int,
-    eff_speed: int,
+    element: Element,
+    atk_power: int,
+    atk_speed: int,
+    stance_available: bool,
     balance: BalanceConfig,
 ) -> tuple[Side, int, Outcome, EffectSummary | None]:
-    """Resolve an attack vs the opponent's frozen defensive stance (consumed on use).
+    """Resolve one instant-damage component through the pinned pipeline (rule 6):
 
-    Returns (target, damage, outcome, effect). Pipeline: raw -> type chart (only
-    vs a defending element) -> mitigation -> floor 0.
+    raw -> ×type (only vs a stance element) -> ×damage_taken (armor, always)
+    -> flat stance block/dodge/reflect (consumed on use) -> floor 0.
+
+    ``stance_available`` is False once an earlier component in the bundle already
+    consumed the opponent's stance. Returns (target, damage, outcome, summary).
     """
-    raw = eff_power * balance.attack_damage_multiplier
-    stance = opponent.active_defense
+    raw = atk_power * balance.attack_damage_multiplier
+    dt_mult = damage_taken_mult(opponent.effects, balance)  # opponent's armor, always applies
+    stance = _stance(opponent) if stance_available else None
+
     if stance is None:
-        dmg = max(0, round(raw))  # undefended -> elements inert (neutral)
+        dmg = max(0, round(raw * dt_mult))  # undefended -> elements inert (neutral)
         return o_side, dmg, Outcome.hit_knockback, None
 
-    typed = raw * type_multiplier(action.element, stance.element, balance)
+    opponent.effects.remove(stance)  # consume-on-hit
+    typed = raw * type_multiplier(element, stance.element, balance) * dt_mult
     typed_i = max(0, round(typed))
-    opponent.active_defense = None  # consume-on-hit
 
-    if stance.subtype == Subtype.shield:
+    if stance.subtype is DefenseSubtype.shield:
         block = stance.power * balance.block_multiplier
         dmg = max(0, round(typed - block))
         outcome = Outcome.blocked if dmg == 0 else Outcome.partial
         return o_side, dmg, outcome, EffectSummary(kind="shield", absorbed=max(0, typed_i - dmg))
 
-    if stance.subtype == Subtype.dodge:
-        if stance.speed >= eff_speed:
+    if stance.subtype is DefenseSubtype.dodge:
+        if stance.speed >= atk_speed:
             return o_side, 0, Outcome.dodged, EffectSummary(kind="dodge", absorbed=typed_i)
         dmg = max(0, round(typed * balance.partial_dodge_damage_fraction))
         return (
@@ -110,7 +135,7 @@ def _attack(
         )
 
     # reflect
-    if stance.power >= eff_power:
+    if stance.power >= atk_power:
         returned = max(0, round(typed * balance.reflect_return_fraction))
         return a_side, returned, Outcome.reflected, EffectSummary(kind="reflect")
     absorb = stance.power * balance.block_multiplier
@@ -119,17 +144,8 @@ def _attack(
     return o_side, dmg, outcome, EffectSummary(kind="reflect", absorbed=max(0, typed_i - dmg))
 
 
-def _make_effect(stat: Stat | None, shift: int, duration: int) -> ActiveEffect:
-    eff = ActiveEffect(turns_remaining=duration)
-    if stat == Stat.speed:
-        eff.speed_shift = shift
-    else:
-        eff.power_shift = shift
-    return eff
-
-
-def resolve_turn(state: GameState, action: JudgedAction, balance: BalanceConfig) -> ResolveResult:
-    """Resolve one action for the active player and advance the turn."""
+def resolve_turn(state: GameState, action: Action, balance: BalanceConfig) -> ResolveResult:
+    """Resolve one bundle for the active player and advance the turn."""
     ns = state.model_copy(deep=True)  # input immutability
     a_side = ns.active
     o_side = _OPPONENT[a_side]
@@ -140,100 +156,184 @@ def resolve_turn(state: GameState, action: JudgedAction, balance: BalanceConfig)
     if active.hp <= 0 or opponent.hp <= 0:
         raise ValueError("cannot resolve a turn for a match that is already over")
 
-    assert action.template is not None  # normalized in the JudgedAction validator
+    events: list[ResolutionEvent] = []
 
-    # 1. Effective stats from the active player's current buff/debuff.
-    eff_power = effective_power(action, active.active_buff, active.active_debuff)
-    eff_speed = effective_speed(action, active.active_buff, active.active_debuff)
+    # --- START OF TURN: this player's over-time effects tick (frozen magnitudes).
+    for e in active.effects:
+        if e.kind is EffectKind.dot:
+            active.hp = max(0, active.hp - e.per_turn)
+            events.append(
+                ResolutionEvent(
+                    actor=e.source,
+                    target=a_side,
+                    kind="dot_tick",
+                    element=e.element,
+                    outcome=Outcome.ticked,
+                    amount=e.per_turn,
+                    effect=EffectSummary(kind="dot", per_turn=e.per_turn, label=e.label),
+                    template=Template.debuff_cloud,
+                    state_delta=_display(players, balance),
+                )
+            )
+        elif e.kind is EffectKind.hot:
+            before = active.hp
+            active.hp = min(balance.hp_max, active.hp + e.per_turn)
+            events.append(
+                ResolutionEvent(
+                    actor=a_side,
+                    target=a_side,
+                    kind="hot_tick",
+                    outcome=Outcome.ticked,
+                    amount=active.hp - before,
+                    effect=EffectSummary(kind="hot", per_turn=e.per_turn, label=e.label),
+                    template=Template.heal_glow,
+                    state_delta=_display(players, balance),
+                )
+            )
 
-    # 2. Pay mana (base power), floor 0.
-    active.mana = max(0, active.mana - mana_cost(action, balance))
+    # A dot can KO the active player before they ever act -> the source wins.
+    if active.hp <= 0:
+        return ResolveResult(events=events, state=ns, match_over=True, winner=o_side)
 
-    # 3. Apply the action. Newly-created SELF effects are staged (installed after
-    #    the end-of-turn tick); a debuff lands on the opponent's slot now (it is
-    #    the opponent's effect and only ticks on their turns).
-    duration = balance.buff_debuff_duration_turns
-    pending_buff: ActiveEffect | None = None
-    pending_defense: ActiveDefense | None = None
-    target: Side = o_side
-    outcome = Outcome.hit_knockback
-    damage = 0
-    effect: EffectSummary | None = None
-    cat = action.category
+    # --- ACT: pay the aggregate cost, then apply each component in order.
+    active.mana = max(0, active.mana - bundle_cost(action.components, balance))
+    atk_speed = effective_speed(action.speed, active.effects)
+    staged: list[ActiveEffect] = []  # self-targeted effects installed post-decrement
+    stance_available = True  # the opponent's stance is consumed by the first hit
+    primary_narrated = False
 
-    if cat == Category.attack:
-        target, damage, outcome, effect = _attack(
-            a_side, o_side, opponent, action, eff_power, eff_speed, balance
+    for c in action.components:
+        narration = "" if primary_narrated else action.flavor_text
+        target: Side = o_side
+        outcome = Outcome.applied
+        amount = 0
+        summary: EffectSummary | None = None
+        template = _component_template(c, action.template)
+
+        if c.type is ComponentType.damage:
+            atk_power = effective_power(c.power or 0, active.effects)
+            target, amount, outcome, summary = _apply_damage(
+                a_side,
+                o_side,
+                active,
+                opponent,
+                c.element,
+                atk_power,
+                atk_speed,
+                stance_available,
+                balance,
+            )
+            stance_available = False  # first damage consumes any stance; later hits land bare
+            hit = active if target == a_side else opponent
+            hit.hp = max(0, hit.hp - amount)
+
+        elif c.type is ComponentType.heal:
+            before = active.hp
+            active.hp = min(
+                balance.hp_max, active.hp + round((c.power or 0) * balance.heal_multiplier)
+            )
+            target, outcome, amount = a_side, Outcome.healed, active.hp - before
+            summary = EffectSummary(kind="heal", magnitude=active.hp - before)
+
+        elif c.type is ComponentType.dot:
+            per_turn = max(1, round((c.power or 0) * balance.dot_multiplier))
+            opponent.effects.append(
+                ActiveEffect(
+                    kind=EffectKind.dot,
+                    turns_remaining=c.duration or 1,
+                    source=a_side,
+                    per_turn=per_turn,
+                    element=c.element,
+                    label=_dot_label(c.element),
+                )
+            )
+            summary = EffectSummary(
+                kind="dot", per_turn=per_turn, duration=c.duration, label=_dot_label(c.element)
+            )
+
+        elif c.type is ComponentType.hot:
+            per_turn = max(1, round((c.power or 0) * balance.hot_multiplier))
+            staged.append(
+                ActiveEffect(
+                    kind=EffectKind.hot,
+                    turns_remaining=c.duration or 1,
+                    source=a_side,
+                    per_turn=per_turn,
+                    label="regen",
+                )
+            )
+            target = a_side
+            summary = EffectSummary(
+                kind="hot", per_turn=per_turn, duration=c.duration, label="regen"
+            )
+
+        elif c.type is ComponentType.stat:
+            label = _stat_label(c.stat, c.magnitude or 0)
+            eff = ActiveEffect(
+                kind=EffectKind.stat,
+                turns_remaining=c.duration or 1,
+                source=a_side,
+                stat=c.stat,
+                magnitude=c.magnitude or 0,
+                label=label,
+            )
+            if c.target is ComponentTarget.caster:
+                staged.append(eff)
+                target = a_side
+            else:
+                opponent.effects.append(eff)
+                target = o_side
+            summary = EffectSummary(
+                kind="stat", stat=c.stat, magnitude=c.magnitude, duration=c.duration, label=label
+            )
+
+        elif c.type is ComponentType.defense:
+            subtype = c.subtype or DefenseSubtype.shield
+            staged.append(
+                ActiveEffect(
+                    kind=EffectKind.defense,
+                    turns_remaining=balance.defense_stance_duration_turns,
+                    source=a_side,
+                    subtype=subtype,
+                    element=c.element,
+                    power=effective_power(c.power or 0, active.effects),
+                    speed=atk_speed,
+                    label=subtype.value,
+                )
+            )
+            target = a_side
+            summary = EffectSummary(kind=subtype.value, label=subtype.value)
+
+        events.append(
+            ResolutionEvent(
+                actor=a_side,
+                target=target,
+                kind=c.type.value,
+                element=c.element,
+                outcome=outcome,
+                amount=amount,
+                effect=summary,
+                template=template,
+                narration=narration,
+                state_delta=_display(players, balance),
+            )
         )
-        hit = active if target == a_side else opponent
-        hit.hp = max(0, hit.hp - damage)
-    elif cat == Category.heal:
-        before = active.hp
-        active.hp = min(balance.hp_max, active.hp + round(eff_power * balance.heal_multiplier))
-        target, outcome = a_side, Outcome.healed
-        effect = EffectSummary(kind="heal", magnitude=active.hp - before)
-    elif cat == Category.defense:
-        pending_defense = ActiveDefense(
-            subtype=action.subtype,
-            element=action.element,
-            power=eff_power,
-            speed=eff_speed,
-            turns_remaining=balance.defense_stance_duration_turns,
-        )
-        target, outcome = a_side, Outcome.defended
-        effect = EffectSummary(kind=action.subtype.value)
-    elif cat == Category.buff:
-        shift = buff_shift(action, balance)
-        pending_buff = _make_effect(action.stat, shift, duration)
-        target, outcome = a_side, Outcome.buffed
-        kind = "hasten" if action.stat == Stat.speed else "empower"
-        effect = EffectSummary(kind=kind, stat=action.stat, magnitude=shift, duration=duration)
-    elif cat == Category.debuff:
-        shift = buff_shift(action, balance)
-        opponent.active_debuff = _make_effect(action.stat, shift, duration)
-        target, outcome = o_side, Outcome.debuffed
-        kind = "slow" if action.stat == Stat.speed else "weaken"
-        effect = EffectSummary(kind=kind, stat=action.stat, magnitude=shift, duration=duration)
+        primary_narrated = True
 
-    new_cd = category_cooldown(action, balance)
-
-    # 4. End-of-turn upkeep for the ACTIVE player only (use-before-decrement,
-    #    install-after-tick), then mana regen so their next input shows spendable
-    #    mana. The opponent's effects/cooldowns tick on the opponent's own turns.
-    for slot in ("active_buff", "active_debuff", "active_defense"):
-        eff: ActiveEffect | ActiveDefense | None = getattr(active, slot)
-        if eff is not None:
-            eff.turns_remaining -= 1
-            if eff.turns_remaining <= 0:
-                setattr(active, slot, None)
-    active.cooldowns = {c: t - 1 for c, t in active.cooldowns.items() if t - 1 > 0}
-    if pending_buff is not None:
-        active.active_buff = pending_buff
-    if pending_defense is not None:
-        active.active_defense = pending_defense
-    if new_cd > 0:
-        active.cooldowns[cat] = new_cd
+    # --- END OF TURN upkeep for the ACTIVE player only.
+    _decrement_effects(active)
+    _install_staged(active, staged, balance)
+    active.cooldowns = {k: t - 1 for k, t in active.cooldowns.items() if t - 1 > 0}
+    for k, cd in kind_cooldowns(action.components, balance).items():
+        active.cooldowns[k] = cd
     active.mana = min(balance.mana_max, active.mana + balance.mana_regen_per_turn)
 
-    event = ResolutionEvent(
-        actor=a_side,
-        target=target,
-        template=action.template,
-        outcome=outcome,
-        damage=damage,
-        effect=effect,
-        narration=action.flavor_text,
-        state_delta=_display(players, balance),
-    )
-
-    # 5. Match-over check + advance the turn. A death (only the active player can
-    #    deal damage this turn) ends it immediately; otherwise the turn cap is
-    #    checked only at a round boundary (after p2 acts) so actions are equal.
+    # --- Match-over check + advance the turn.
     match_over = False
     winner: Side | Literal["draw"] | None = None
     if opponent.hp <= 0:
         match_over, winner = True, a_side
-    elif active.hp <= 0:  # e.g. reflected onto the attacker
+    elif active.hp <= 0:  # e.g. a reflected hit killed the attacker
         match_over, winner = True, o_side
     elif a_side == "p1":
         ns.active = "p2"
@@ -243,4 +343,79 @@ def resolve_turn(state: GameState, action: JudgedAction, balance: BalanceConfig)
         if ns.round > balance.max_turns:
             match_over, winner = True, _higher_hp(ns.p1.hp, ns.p2.hp)
 
-    return ResolveResult(events=[event], state=ns, match_over=match_over, winner=winner)
+    if not events:  # an empty bundle still passes a turn; give playback one beat
+        events.append(
+            ResolutionEvent(
+                actor=a_side,
+                target=a_side,
+                kind="fizzle",
+                outcome=Outcome.fizzled,
+                narration=action.flavor_text,
+                state_delta=_display(players, balance),
+            )
+        )
+
+    return ResolveResult(events=events, state=ns, match_over=match_over, winner=winner)
+
+
+def _decrement_effects(player: PlayerState) -> None:
+    """Tick down every effect on the player; drop the expired (use-before-decrement)."""
+    kept: list[ActiveEffect] = []
+    for e in player.effects:
+        e.turns_remaining -= 1
+        if e.turns_remaining > 0:
+            kept.append(e)
+    player.effects = kept
+
+
+def _install_staged(
+    player: PlayerState, staged: list[ActiveEffect], balance: BalanceConfig
+) -> None:
+    """Install this turn's self-targeted effects (a new stance replaces the old),
+    then cap the list at max_effects_per_player, keeping the newest."""
+    for e in staged:
+        if e.kind is EffectKind.defense:
+            player.effects = [x for x in player.effects if x.kind is not EffectKind.defense]
+        player.effects.append(e)
+    if len(player.effects) > balance.max_effects_per_player:
+        player.effects = player.effects[-balance.max_effects_per_player :]
+
+
+def _component_template(c: EffectComponent, action_template: Template) -> Template:
+    if c.type is ComponentType.damage:
+        return action_template
+    if c.type is ComponentType.defense and c.subtype is not None:
+        return DEFENSE_TEMPLATE[c.subtype]
+    if c.type is ComponentType.stat and c.target is ComponentTarget.caster:
+        return Template.buff_aura
+    if c.type is ComponentType.stat:
+        return Template.debuff_cloud
+    from app.models import COMPONENT_TEMPLATE
+
+    return COMPONENT_TEMPLATE[c.type]
+
+
+_DOT_LABELS = {
+    Element.fire: "burn",
+    Element.nature: "poison",
+    Element.water: "chill",
+    Element.lightning: "shock",
+    Element.physical: "bleed",
+}
+
+
+def _dot_label(element: Element) -> str:
+    return _DOT_LABELS.get(element, "bleed")
+
+
+def _stat_label(stat, magnitude: int) -> str:
+    from app.models import StatKind
+
+    up = magnitude >= 0
+    if stat is StatKind.power:
+        return "empowered" if up else "weakened"
+    if stat is StatKind.speed:
+        return "hastened" if up else "slowed"
+    if stat is StatKind.damage_taken:
+        return "exposed" if up else "armored"
+    return "affected"

@@ -41,28 +41,27 @@ def _find_balance_path() -> Path:
     )
 
 
-class CategoryFloats(BaseModel):
-    """A per-category float map over the five action categories."""
+class ComponentWeights(BaseModel):
+    """Per-component pricing weight — the exponent base contribution of each kind."""
 
     model_config = ConfigDict(extra="forbid")
 
-    attack: float
-    defense: float
-    buff: float
-    debuff: float
+    damage: float
     heal: float
+    dot: float
+    hot: float
+    stat: float
+    defense: float
 
 
-class CategoryInts(BaseModel):
-    """A per-category int map over the five action categories."""
+class KindCooldowns(BaseModel):
+    """Cooldown turns keyed by the cooldownable component kinds only."""
 
     model_config = ConfigDict(extra="forbid")
 
-    attack: int
-    defense: int
-    buff: int
-    debuff: int
     heal: int
+    defense: int
+    control: int
 
 
 class BalanceConfig(BaseModel):
@@ -88,24 +87,39 @@ class BalanceConfig(BaseModel):
     mana_regen_per_turn: int
 
     cost_exponent: float
-    category_cost_multipliers: CategoryFloats
+    component_weights: ComponentWeights
+    # Super-additive bundle surcharge, keyed by component count ("1".."3").
+    bundle_multipliers: dict[str, float]
+
+    max_components: int
+    max_bundle_cost: int
+    max_effects_per_player: int
+    max_effect_duration: int
+    max_stat_magnitude: int
+    component_power_min: int
+    component_power_max: int
 
     attack_damage_multiplier: float
     heal_multiplier: float
+    dot_multiplier: float
+    hot_multiplier: float
     block_multiplier: float
-    buff_debuff_duration_turns: int
-    buff_debuff_stat_shift_per_power: float
-    defense_stance_duration_turns: int
     partial_dodge_damage_fraction: float
     reflect_return_fraction: float
 
-    category_cooldowns_turns: CategoryInts
+    damage_taken_per_point: float
+    damage_taken_mult_floor: float
+    damage_taken_mult_ceil: float
+
+    defense_stance_duration_turns: int
+
+    kind_cooldowns_turns: KindCooldowns
     heavy_move_power_threshold: int
     heavy_move_extra_cooldown_turns: int
 
     type_advantage_multiplier: float
     type_disadvantage_multiplier: float
-    # Placeholder data slated to change in the M6 balance pass — left as a plain map.
+    # Placeholder data slated to change in a later balance pass — a plain map.
     type_chart_advantages: dict[str, list[str]]
 
     rewrites_per_turn: int

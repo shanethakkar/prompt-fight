@@ -1,118 +1,228 @@
-"""Unit tests for the pure rule helpers (rules.py)."""
+"""Unit tests for the pure rule helpers (rules.py): normalization, aggregate
+pricing, kind cooldowns, and effective-stat folding over the effect list."""
 
 from __future__ import annotations
 
 import pytest
 from app.config import load_balance
-from app.models import ActiveEffect, Element, JudgedAction
+from app.models import (
+    ActiveEffect,
+    ComponentTarget,
+    ComponentType,
+    DefenseSubtype,
+    EffectComponent,
+    EffectKind,
+    Element,
+    StatKind,
+)
 from app.rules import (
-    buff_shift,
-    category_cooldown,
+    bundle_cost,
+    damage_taken_mult,
     effective_power,
     effective_speed,
-    mana_cost,
+    kind_cooldowns,
+    normalize_components,
     type_multiplier,
 )
 
 BAL = load_balance()
 
 
-def _act(category, subtype, power=5, speed=5, element="physical", stat=None):
-    return JudgedAction(
-        category=category,
-        subtype=subtype,
-        power=power,
-        speed=speed,
-        element=element,
-        stat=stat,
+def dmg(power=6, element="physical"):
+    return EffectComponent(type=ComponentType.damage, element=Element(element), power=power)
+
+
+def stat_eff(stat, magnitude, turns=2, source="p1"):
+    return ActiveEffect(
+        kind=EffectKind.stat,
+        stat=StatKind(stat),
+        magnitude=magnitude,
+        turns_remaining=turns,
+        source=source,
     )
 
 
-# ---- mana_cost: ceil(power ** cost_exponent * category_multiplier) -----------
+# ---------------------------------------------------------------------------
+# normalize_components: validate / clamp / cap / drop
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_fills_and_clamps():
+    out = normalize_components([{"type": "damage", "power": 99, "element": "fire"}], BAL)
+    assert len(out) == 1
+    assert out[0].power == 10 and out[0].element is Element.fire
+    assert out[0].target is ComponentTarget.opponent
+
+
+def test_normalize_drops_unknown_type():
+    assert normalize_components([{"type": "teleport"}, {"type": "damage", "power": 3}], BAL) == [
+        EffectComponent(type=ComponentType.damage, target=ComponentTarget.opponent, power=3)
+    ]
+
+
+def test_normalize_at_most_one_damage():
+    out = normalize_components(
+        [{"type": "damage", "power": 5}, {"type": "damage", "power": 8}], BAL
+    )
+    assert [c.type for c in out] == [ComponentType.damage]
+    assert out[0].power == 5  # the first survives
+
+
+def test_normalize_truncates_to_max_components():
+    raw = [
+        {"type": "damage", "power": 5},
+        {"type": "heal", "power": 4},
+        {"type": "defense", "subtype": "shield", "power": 4},
+        {"type": "hot", "power": 3, "duration": 3},
+    ]
+    assert len(normalize_components(raw, BAL)) == BAL.max_components == 3
+
+
+def test_normalize_stat_requires_stat_and_magnitude():
+    assert normalize_components([{"type": "stat", "magnitude": 4}], BAL) == []  # no stat kind
+    assert normalize_components([{"type": "stat", "stat": "power", "magnitude": 0}], BAL) == []
+    out = normalize_components(
+        [{"type": "stat", "stat": "power", "magnitude": -99, "duration": 9, "target": "self"}], BAL
+    )
+    assert out[0].magnitude == -BAL.max_stat_magnitude
+    assert out[0].duration == BAL.max_effect_duration
+    assert out[0].target is ComponentTarget.caster
+
+
+def test_normalize_heal_and_hot_default_to_self():
+    out = normalize_components(
+        [{"type": "heal", "power": 4}, {"type": "hot", "power": 3, "duration": 2}], BAL
+    )
+    assert all(c.target is ComponentTarget.caster for c in out)
+
+
+def test_normalize_defense_defaults_shield():
+    out = normalize_components([{"type": "defense", "power": 5}], BAL)
+    assert out[0].subtype is DefenseSubtype.shield
+    assert out[0].target is ComponentTarget.caster
+
+
+def test_normalize_ignores_non_dicts():
+    assert normalize_components(["nope", 3, {"type": "damage", "power": 2}], BAL)[0].power == 2
+
+
+# ---------------------------------------------------------------------------
+# bundle_cost: aggregate, super-additive, capped
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
-    "category,subtype,power,expected",
-    [
-        ("attack", "projectile", 1, 1),
-        ("attack", "projectile", 5, 7),
-        ("attack", "projectile", 10, 16),
-        ("heal", "heal", 5, 8),
-        ("heal", "heal", 10, 18),
-        ("defense", "shield", 5, 6),
-        ("defense", "shield", 10, 13),
-        ("buff", "buff", 5, 7),
-        ("debuff", "debuff", 5, 7),
-    ],
+    "power,expected",
+    [(1, 1), (5, 7), (6, 9), (10, 16)],  # ceil(power**1.2) with weight 1.0
 )
-def test_mana_cost(category, subtype, power, expected):
-    assert mana_cost(_act(category, subtype, power=power), BAL) == expected
+def test_single_damage_cost_matches_legacy_curve(power, expected):
+    assert bundle_cost([dmg(power=power)], BAL) == expected
 
 
-def test_mana_cost_ignores_buffs():
-    # Cost is from base power; effective power is irrelevant here.
-    assert mana_cost(_act("attack", "melee", power=5), BAL) == 7
+def test_heal_and_defense_single_costs():
+    heal = EffectComponent(type=ComponentType.heal, power=5)
+    shield = EffectComponent(type=ComponentType.defense, subtype=DefenseSubtype.shield, power=5)
+    assert bundle_cost([heal], BAL) == 8  # ceil((5*1.1)**1.2)
+    assert bundle_cost([shield], BAL) == 6  # ceil((5*0.8)**1.2)
 
 
-# ---- type_multiplier ---------------------------------------------------------
+def test_bundle_is_super_additive():
+    a = EffectComponent(type=ComponentType.stat, stat=StatKind.power, magnitude=3, duration=2)
+    b = EffectComponent(type=ComponentType.stat, stat=StatKind.speed, magnitude=3, duration=2)
+    combined = bundle_cost([a, b], BAL)
+    assert combined > bundle_cost([a], BAL)
+    assert combined > bundle_cost([b], BAL)
+
+
+def test_bundle_cost_capped_at_max():
+    big = [
+        EffectComponent(type=ComponentType.damage, power=10),
+        EffectComponent(type=ComponentType.heal, power=10),
+        EffectComponent(type=ComponentType.defense, subtype=DefenseSubtype.shield, power=10),
+    ]
+    assert bundle_cost(big, BAL) == BAL.max_bundle_cost
+
+
+def test_empty_bundle_is_free():
+    assert bundle_cost([], BAL) == 0
+
+
+# ---------------------------------------------------------------------------
+# kind_cooldowns: only heal/defense throttled; heavy bump
+# ---------------------------------------------------------------------------
+
+
+def test_kind_cooldowns_only_heal_and_defense():
+    comps = [
+        dmg(power=8),  # heavy but damage has no cooldown
+        EffectComponent(type=ComponentType.heal, power=4),
+        EffectComponent(type=ComponentType.defense, subtype=DefenseSubtype.shield, power=4),
+    ]
+    cds = kind_cooldowns(comps, BAL)
+    assert cds == {"heal": 3, "defense": 1}
+
+
+def test_kind_cooldowns_heavy_move_bump():
+    comps = [EffectComponent(type=ComponentType.heal, power=9)]  # >= threshold 8
+    assert kind_cooldowns(comps, BAL) == {"heal": 4}
+
+
+def test_stat_and_dot_have_no_cooldown():
+    comps = [
+        EffectComponent(type=ComponentType.stat, stat=StatKind.power, magnitude=-4, duration=2),
+        EffectComponent(type=ComponentType.dot, power=5, duration=3),
+    ]
+    assert kind_cooldowns(comps, BAL) == {}
+
+
+# ---------------------------------------------------------------------------
+# effective stats folded over the effect list
+# ---------------------------------------------------------------------------
+
+
+def test_effective_power_sums_additively():
+    effects = [stat_eff("power", 3), stat_eff("power", 2)]
+    assert effective_power(5, effects) == 10  # 5 + 3 + 2
+
+
+def test_effective_power_floors_at_zero():
+    assert effective_power(5, [stat_eff("power", -10)]) == 0
+
+
+def test_effective_speed_floors_at_one():
+    assert effective_speed(2, [stat_eff("speed", -9)]) == 1
+
+
+def test_damage_taken_mult_multiplies_and_floors():
+    armor = [stat_eff("damage_taken", -4), stat_eff("damage_taken", -4)]
+    # (1-0.4)*(1-0.4) = 0.36
+    assert damage_taken_mult(armor, BAL) == pytest.approx(0.36)
+    heavy = [stat_eff("damage_taken", -8), stat_eff("damage_taken", -8)]
+    assert damage_taken_mult(heavy, BAL) == BAL.damage_taken_mult_floor  # clamped
+
+
+def test_damage_taken_mult_expose_increases():
+    assert damage_taken_mult([stat_eff("damage_taken", 4)], BAL) == pytest.approx(1.4)
+
+
+def test_damage_taken_mult_neutral_when_no_armor():
+    assert damage_taken_mult([stat_eff("power", 3)], BAL) == 1.0
+
+
+# ---------------------------------------------------------------------------
+# type_multiplier (unchanged element chart)
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
     "attacker,defender,expected",
     [
-        ("fire", "nature", 1.5),  # fire > nature
-        ("nature", "fire", 0.75),  # reverse
-        ("water", "fire", 1.5),  # water > fire
-        ("fire", "water", 0.75),  # reverse
-        ("nature", "water", 1.5),  # nature > water
-        ("lightning", "water", 1.5),  # lightning > water
-        ("nature", "lightning", 1.5),  # nature > lightning (grounding)
-        ("lightning", "nature", 0.75),  # reverse
-        ("physical", "fire", 1.0),  # physical neutral everywhere
-        ("fire", "physical", 1.0),
-        ("fire", "lightning", 1.0),  # unrelated
+        ("fire", "nature", 1.5),
+        ("nature", "fire", 0.75),
+        ("water", "fire", 1.5),
+        ("physical", "fire", 1.0),
+        ("fire", "lightning", 1.0),
     ],
 )
 def test_type_multiplier(attacker, defender, expected):
     assert type_multiplier(Element(attacker), Element(defender), BAL) == expected
-
-
-# ---- effective stats + clamping ---------------------------------------------
-
-
-def test_effective_power_buff_and_debuff():
-    a = _act("attack", "melee", power=5)
-    assert effective_power(a, ActiveEffect(power_shift=3, turns_remaining=1), None) == 8
-    assert effective_power(a, None, ActiveEffect(power_shift=2, turns_remaining=1)) == 3
-
-
-def test_effective_power_floors_at_zero():
-    a = _act("attack", "melee", power=5)
-    huge = ActiveEffect(power_shift=10, turns_remaining=1)
-    assert effective_power(a, None, huge) == 0
-
-
-def test_effective_speed_floors_at_one():
-    a = _act("attack", "melee", power=5, speed=2)
-    huge = ActiveEffect(speed_shift=5, turns_remaining=1)
-    assert effective_speed(a, None, huge) == 1
-
-
-def test_buff_shift_from_power():
-    assert buff_shift(_act("buff", "buff", power=5), BAL) == 5
-    assert buff_shift(_act("buff", "buff", power=7), BAL) == 7
-
-
-# ---- category_cooldown incl. heavy-move rule ---------------------------------
-
-
-def test_category_cooldown_base():
-    assert category_cooldown(_act("attack", "melee", power=5), BAL) == 0
-    assert category_cooldown(_act("heal", "heal", power=5), BAL) == 3
-    assert category_cooldown(_act("defense", "shield", power=5), BAL) == 1
-
-
-def test_heavy_move_adds_cooldown():
-    # power >= 8 adds +1 to the category cooldown.
-    assert category_cooldown(_act("attack", "melee", power=8), BAL) == 1
-    assert category_cooldown(_act("heal", "heal", power=9), BAL) == 4

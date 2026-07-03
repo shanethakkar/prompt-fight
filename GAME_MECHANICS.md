@@ -2,114 +2,125 @@
 
 > **This file is the single source of truth for game rules.** Per `CLAUDE.md`, any change to a mechanic — in code, judge prompt, or config — must be reflected here in the same commit. Numbers shown below are the current values in `config/balance.json`; that file wins if they drift.
 
-> **⚠️ Redesign in progress (2026-07-02):** `DESIGN.md` is the agreed direction — an open-ended **generic effect grammar** (bundled components, not one of 5 categories), two **modes** (competitive / sandbox), and a **reliability (miss/fizzle) system**. The rules below describe the **currently implemented** engine; they are revised phase-by-phase per DESIGN §7. In particular §3 (closed categories / single-effect) and §11 (out-of-scope: minions, status stacking) are superseded by that direction.
+> **Effect grammar landed (2026-07-03).** The engine no longer classifies a prompt into one of 5 closed categories. It parses each prompt into a small **bundle of typed effect components** (DESIGN.md §3) that the server resolves and prices. This delivers persistent gear (armor), over-time effects (poison/burn/regen), real stat statuses, and multi-effect prompts. **Deferred (not yet implemented):** `control`/stun turn-skip (A.2), `resource` mana drain (A.3), `hit_chance`/blind + the full reliability/miss system and competitive/sandbox balancing modes (P1), entities/minions (P3). Where this doc says "deferred," the judge approximates with the nearest available component (e.g. freeze → heavy speed debuff, blind → speed debuff).
 
 ## 1. Match structure
 
 - Two players, local hot-seat (one device, pass-and-play). **Open info** — no hidden inputs.
-- **Alternating single-action turns (Worms-style):** P1 acts, the result plays out, then P2 acts, then P1… (P1 starts; seeded starter-randomization is a P1 follow-up). Each turn the active player takes exactly **one** action, resolved immediately against the current state (including the opponent's raised defensive stance).
-- Match ends the instant a player's HP reaches 0. Only the active player deals damage on their turn, so a double-KO is impossible — **HP floors at 0** (no signed accounting).
+- **Alternating single-action turns (Worms-style):** P1 acts, the result plays out, then P2 acts, then P1… (P1 starts; seeded starter-randomization is a P1 follow-up). Each turn the active player submits exactly **one** action (a bundle of up to 3 components), resolved immediately against the current state.
+- Match ends the instant a player's HP reaches 0. **HP floors at 0** (no signed accounting). A player can now be KO'd **at the start of their own turn** by a damage-over-time effect before they act — the win goes to the effect's source (§7).
 - **Round cap:** `max_turns` (default 30) counts **rounds** (one turn each). It is checked only at a **round boundary** (after P2 acts) so both players have taken equal actions; then higher HP wins, equal → draw.
 
 ## 2. Resources
 
 | Resource | Start | Max | Regen |
 |---|---|---|---|
-| HP | 100 | 100 | none |
+| HP | 100 | 100 | none (except a `hot` effect you cast — §3) |
 | Mana | 10 | 20 | +3 at the end of each of your own turns |
 
-- Actions cost mana (see §5). You cannot confirm an action you can't afford.
+- Actions cost mana (see §5). You cannot confirm an action you can't afford (outside sandbox mode).
 - Regen is applied at the **end** of your turn, so the mana shown when it's your turn to act is exactly what's spendable.
 
-## 3. Action categories (closed set)
+## 3. The effect grammar (open-ended)
 
-Every prompt is judged into **exactly one** category:
+Flavor is infinite; the mechanical vocabulary is a small fixed set. The judge (`JUDGE.md`) turns a freeform prompt into an **`Action`** = a bundle of **1–3 `EffectComponent`s** plus shared presentation (`element`, `speed`, `template`, `flavor_text`). Each component has a `type` and a `target` (`self` or `opponent`):
 
-1. **Attack** — subtypes: `projectile`, `beam`, `melee`, `aoe`. Deals damage.
-2. **Defense** — subtypes: `shield`, `dodge`, `reflect`. Mitigates incoming damage this turn.
-3. **Buff** — temporary self-boost of one stat (power **or** speed) for `duration` turns. Which stat is set by the judge via the `stat` field on `JudgedAction` (`JUDGE.md` §4).
-4. **Debuff** — temporary opponent-weakening of one stat (power **or** speed) for `duration` turns; stat likewise chosen by the judge.
-5. **Heal** — restores HP (never above max).
+| Component | Target | Params | Effect |
+|---|---|---|---|
+| `damage` | opponent | `power` 1–10, `element` | Instant HP loss through the damage pipeline (§7). |
+| `heal` | self | `power` 1–10 | Instant HP gain, `power × heal_multiplier` (×2.5), capped at `hp_max`. |
+| `dot` | opponent | `power` 1–10, `duration` 1–4, `element` | Damage over time (poison/burn/bleed). Ticks `round(power × dot_multiplier)` (×1.0) at the afflicted's start-of-turn. |
+| `hot` | self | `power` 1–10, `duration` 1–4 | Heal over time (regen). Ticks `round(power × hot_multiplier)` (×1.5) at your start-of-turn. |
+| `stat` | either | `stat`, signed `magnitude` (±8), `duration` 1–4 | Persistent stat shift. `stat` ∈ {`power`, `speed`, `damage_taken`}. |
+| `defense` | self | `subtype` (shield/dodge/reflect), `power`, `element` | A raised defensive stance for the opponent's next turn (§7). |
 
-Buffs and debuffs occupy **single slots**: a player has at most one active buff (self) and one active debuff (from the opponent) at a time. Re-casting **replaces** the current one (no stacking — see §11).
+**`stat` sign convention:** `magnitude` is the signed change to the **target's** stat. Help yourself → `+power` / `+speed` / `−damage_taken` (armor). Hurt the enemy → `−power` / `−speed` / `+damage_taken` (expose). `damage_taken` is a multiplier on incoming damage: each point = ±`damage_taken_per_point` (10%); multiple `damage_taken` effects **multiply**, clamped to `[0.25, 2.5]`.
 
-**Anti-stacking rule (structural):** the `JudgedAction` schema can hold only one category, one element, one power value. Prompts requesting multiple effects ("a shield AND a sword AND 50 HP") are judged on the single most prominent effect; everything else is flavor text with zero mechanical weight. See `JUDGE.md` §3.
+**Server-side caps (enforced in `rules.normalize_components`, never trusted from the judge):** at most `max_components` (3) components, at most **1 `damage`** component per bundle, powers clamped 1–10, `magnitude` clamped ±8, `duration` clamped 1–4. Invalid components (e.g. a `stat` with no `stat` kind or zero magnitude) are dropped; a bundle that empties out becomes a harmless sputter.
 
-## 4. Stats
+## 4. Persistent effects and stat folding
 
-- **Power (1–10):** magnitude of the effect. Scales damage, block value, buff/debuff strength, heal amount.
-- **Speed (1–10):** resolution ordering within the turn (see §7). Quick jabs are fast; huge windups are slow. The judge assigns both from the prompt's described scope per the rubric in `JUDGE.md` §6.
+A player carries a **list** of active effects (`PlayerState.effects`, capped at `max_effects_per_player` = 6, newest kept). Effects are applied to the target and tick/decrement on **that player's own turns** (§7). At read time the resolver folds the list into live numbers:
 
-**Base vs. effective stats.** The judge assigns *base* power/speed. During resolution an action uses *effective* stats: `effective = base + active_buff_shift − active_debuff_shift`, clamped so effective **power ≥ 0** and effective **speed ≥ 1** (no upper cap). Effective stats drive attack/heal/defense magnitude and the dodge/reflect comparisons. **Base** power (not effective) drives three things: mana cost (§5), the heavy-move ≥ 8 cooldown bump (§6), and the buff/debuff shift magnitude below — so buffs never feed back into their own cost, cooldown class, or strength.
+- **effective power** = `base + Σ(power stat magnitudes)`, floor 0.
+- **effective speed** = `base + Σ(speed stat magnitudes)`, floor 1.
+- **damage-taken multiplier** = `Π(1 + magnitude × 0.1)` over `damage_taken` effects, clamped `[0.25, 2.5]`.
 
-- **Damage** (fixed pipeline, in order): `raw = effective_power × attack_damage_multiplier` (default ×3); `typed = raw × type_chart_modifier` (§8); then mitigation (shield/dodge/reflect, §7) is applied to `typed`; finally **floor 0**. The type modifier is applied *before* mitigation, so a fire attack into a nature shield is `(power×3×1.5) − block`, not `((power×3) − block)×1.5`.
-- **Heal** = `effective_power × heal_multiplier` (default ×2.5), added to HP, capped at `hp_max`.
-- **Buff/debuff shift** = `round(base_power × buff_debuff_stat_shift_per_power)` (default ×1.0, i.e. shift = power), applied to the chosen stat for `buff_debuff_duration_turns` (default 2). See §7 for exactly when it starts and stops biting.
+**Stacking:** same-stat power/speed effects are **additive** (two weakens sum); `damage_taken` effects are **multiplicative**; `dot`/`hot` effects **coexist** (each ticks independently); a `defense` stance is a **single slot** — a new stance replaces the old.
 
-## 5. Mana cost (server-computed, never LLM-set)
+## 5. Mana cost (server-computed, aggregate — never LLM-set)
 
-`cost = ceil(power ^ cost_exponent × category_multiplier)` — parameters in `balance.json` (defaults: exponent 1.2; multipliers: attack 1.0, defense 0.8, buff 0.9, debuff 0.9, heal 1.1).
+The whole bundle is priced together (summing per-component costs was a burst exploit):
 
-This is the power-scaling throttle: "I collapse a black hole onto you" is legal — the judge just scores it power 10, which prices it out of reach early and forces saving up. Imagination is unconstrained; drama isn't cheap.
+`cost = min(max_bundle_cost, ceil( (Σ component_weight) ^ cost_exponent × bundle_mult[n] ))`
+
+- **component_weight:** `damage` = `power×1.0`, `heal` = `power×1.1`, `defense` = `power×0.8`, `dot` = `power×duration×0.3`, `hot` = `power×duration×0.35`, `stat` = `|magnitude|×duration×0.5`.
+- **bundle_mult** (super-additive surcharge by component count): 1 → 1.0, 2 → 1.3, 3 → 1.7. Combining is never cheaper than one big move.
+- **cost_exponent** = 1.2; **max_bundle_cost** = 20 (= mana_max). A single `damage` reproduces the old attack curve: power 5 → 7, power 6 → 9, power 10 → 16.
+
+This is the power-scaling throttle: "I collapse a black hole onto you" is legal — the judge scores it power 10, which prices it out of reach early and forces saving up. Imagination is unconstrained; drama isn't cheap.
 
 ## 6. Cooldowns
 
-- Per-category cooldowns (in turns) apply after use — defaults: attack 0, defense 1, buff 2, debuff 2, heal 3.
-- **Heavy-move rule:** any action with power ≥ 8 adds +1 turn to its category's cooldown.
-- A category on cooldown cannot be selected; the judge response is checked against the player's cooldown state at confirm time.
+Cooldowns are keyed by **component kind**, and only the turtle/lock levers are throttled: `heal` (3), `defense` (1), `control` (1, reserved for A.2). `damage`, `dot`, and `stat` ride on mana alone and have **no cooldown**.
 
-## 7. Resolving a turn (one action)
+- **Heavy-move rule:** a `heal`/`defense` component with power ≥ 8 adds +1 turn to that kind's cooldown.
+- A bundle whose kind is on cooldown cannot be confirmed; `/api/judge` reports `on_cooldown` = true if **any** cooldownable kind in the bundle is currently blocked.
 
-Each turn the **active player A** takes one action against **opponent O**, resolved in this order:
+## 7. Resolving a turn (three phases)
 
-1. **Effective stats** for A are computed from A's current buff/debuff (`base + buff − debuff`, power floored 0 / speed floored 1). **Base** power still drives mana cost, the heavy-move cooldown bump, and buff/debuff magnitude.
-2. **Pay** A's mana cost (base power), floor 0.
-3. **Apply** the action: attack (vs O's stance, below), defense (raise a stance on A), buff (on A), debuff (on O), or heal (A, capped). HP floors at 0. Emit one event.
-4. **Match-over check**, then advance the turn (P1↔P2; a P2 action closes the round and checks the round cap, §1).
+Each turn the **active player A** acts against **opponent O**. The turn runs START → ACT → END, and **each tick and each component becomes one playback event** (a turn can emit several beats).
 
-### Effect / cooldown timing (owner-turn, install-after-tick)
-Durations and cooldowns count in the **owner's own turns**. At the **end of A's turn** (use-before-decrement, so an effect A *used* this turn still ticks after use): (a) decrement A's active buff/debuff/defense timers, drop expired; (b) tick A's cooldowns; (c) install A's newly-created effect + this action's cooldown; (d) mana regen A (capped). O's effects/cooldowns are untouched on A's turn — they tick on O's turns. Consequences: **a buff cast on your turn first bites on your *next* turn and lasts exactly `duration` of your turns; a cooldown-N move blocks exactly your next N turns.** A debuff lands on O immediately and weakens O's next `duration` turns (starting O's very next turn).
+1. **START — over-time ticks.** For each `dot` on A, deal its frozen `per_turn` (bypassing stances and armor); for each `hot` on A, heal its frozen `per_turn` (capped). **Then check KO:** if A hit 0 HP from a dot, the match ends immediately and **O (the dot's source) wins** — A never acts.
+2. **ACT — pay + apply.** Pay the aggregate mana cost (floor 0). Apply each component in order: `damage` (through the pipeline below), `heal`, `dot`/`stat`-on-opponent (land on O **immediately**), `hot`/`stat`-on-self/`defense` (**staged** — installed at END, so an "empower + strike" boosts your *next* strike, not this one). HP floors at 0.
+3. **END — upkeep (A only).** Decrement A's effect timers (use-before-decrement) and drop the expired; install A's staged self-effects (a new stance replaces the old; list capped at 6); tick A's cooldowns and apply this bundle's new cooldowns; regen A's mana (capped). O's effects/cooldowns are untouched — they tick on O's turns.
+4. **Match-over check**, then advance (P1↔P2; a P2 action closes the round and checks the round cap, §1).
 
-### Defenses are stances (not same-turn mitigation)
-A defense raised on your turn doesn't block anything yet — it **persists as a stance** that mitigates the opponent's *next* attack. Its effective power/speed/element are **frozen at cast** (the block happens on the opponent's turn, so recomputing would be ambiguous). A stance is **consumed the moment it mitigates an attack**, and otherwise **expires at the start of your next turn** (`defense_stance_duration_turns`, default 1). Single slot — recasting replaces. Mitigation is applied to the *typed* damage (post-type-chart, §8):
-- **Shield:** incoming damage reduced by `shield_power × block_multiplier` (default ×3), floor 0.
-- **Dodge:** if `dodge_speed ≥ attacker's effective speed`, take 0 damage; otherwise take `partial_dodge_damage_fraction` (default 50%) of the typed damage.
-- **Reflect:** if `reflect_power ≥ attacker's effective power`, negate the hit and return `reflect_return_fraction` (default 50%) of the typed damage **to the attacker** (can KO the attacker; not further type-charted). Otherwise absorb `reflect_power × block_multiplier` and the defender takes the remainder, floor 0.
+**Consequences of owner-turn timing:** a self-buff cast on your turn first bites on your *next* turn and lasts exactly `duration` of your turns; a `dot`/debuff lands on O immediately and ticks on O's next `duration` turns; a cooldown-N move blocks exactly your next N turns.
 
-*Open-info caveat: because both players see a raised stance, a deterministic dodge is easy to play around (attack with speed ≥ the visible dodge). The DESIGN P1 reliability system replaces this with a probabilistic evade.*
+### Damage pipeline (per `damage` component, pinned order)
+`raw = effective_power × attack_damage_multiplier` (×3) → `× type_multiplier` (only vs a stance's element, §8) → `× damage_taken_mult` (O's armor/expose, always) → **then** the flat stance block/dodge/reflect (consumed on use) → floor 0. A `dot` tick bypasses stances and armor (it was frozen at application).
+
+### Defenses are stances (frozen, consume-on-hit)
+A `defense` component raised on your turn doesn't block anything yet — it **persists as a stance** for the opponent's next attack, with effective power/speed/element **frozen at cast**. It is **consumed the moment it mitigates an attack**, else expires at your next END (`defense_stance_duration_turns`, default 1). Mitigation applies to the *typed, armor-adjusted* damage:
+- **Shield:** reduce incoming damage by `shield_power × block_multiplier` (×3), floor 0.
+- **Dodge:** if `dodge_speed ≥ attacker's effective speed`, take 0; else take `partial_dodge_damage_fraction` (50%).
+- **Reflect:** if `reflect_power ≥ attacker's effective power`, negate and return `reflect_return_fraction` (50%) **to the attacker** (can KO them); else absorb `reflect_power × block_multiplier` and take the remainder.
+
+*Open-info caveat: a deterministic dodge is easy to play around (attack faster than the visible dodge). DESIGN P1's reliability system replaces this with a probabilistic evade.*
 
 ## 8. Elements and type chart
 
 Elements (closed set): `physical`, `fire`, `water`, `nature`, `lightning`.
 
-Advantage chart (attacker → defender/defense element): fire > nature, nature > water, water > fire, lightning > water, nature > lightning (grounding). `physical` is neutral everywhere.
+Advantage chart (attacker → defending stance's element): fire > nature, nature > water, water > fire, lightning > water, nature > lightning (grounding). `physical` is neutral everywhere.
 
-- Advantage: damage ×1.5. Disadvantage (reverse direction): ×0.75. Neutral: ×1.0.
-- The chart compares the attacker's element against the **defending action's element** (shield, dodge, or reflect) — a water shield blocks fire extra well, etc.
-- **Elements are inert against an undefended target.** Players have no persistent element, so an attack that meets no defense this turn is always ×1.0 regardless of its element. Elements therefore only matter attack-vs-defense. *(This makes offensive elements situational; flagged for the M6 balance pass.)*
-- Chart lives as an adjacency map in `balance.json` — placeholder values, expected to change in the M6 balance pass.
+- Advantage: ×1.5. Disadvantage (reverse): ×0.75. Neutral: ×1.0.
+- The chart compares the attacker's element against the **defending stance's element** only. **Elements are inert against an undefended target** (no persistent element on players), so an unblocked attack is always ×1.0. `damage_taken` armor is element-agnostic and applies whether or not a stance is present.
+- Chart lives as an adjacency map in `balance.json` — placeholder values, expected to change in a later balance pass.
 
 ## 9. Prompt → cost preview flow
 
 1. Player types a prompt, hits **Submit** (not yet committed).
-2. One judge call; UI shows parsed effect (category, element, power, speed) + computed mana cost.
+2. One judge call; the UI shows the parsed component bundle + aggregate mana cost.
 3. Player picks **Confirm** (locks the action) or **Rewrite**.
 4. **Rewrite cap: 2 per turn.** After the cap, the last submitted judgeable action locks in automatically.
-5. Judge runs at temperature 0 — identical prompts produce identical judgments (no cost-fishing).
-6. Moderation rejections consume a rewrite, never mana. An unaffordable action cannot be confirmed and prompts a rewrite (consuming one).
+5. Judge runs at temperature 0 — identical prompts produce identical bundles (no cost-fishing).
+6. Moderation rejections consume a rewrite, never mana. An unaffordable action cannot be confirmed and prompts a rewrite. **Sandbox mode** ignores the affordability/cooldown gates client-side (the structural component caps in §3 still apply server-side).
 
 ## 10. Timers and AFK (v1)
 
 - Optional per-submission timer, off by default for hot-seat (`balance.json: input_timer_seconds = null`).
 - If enabled and expired with no submission, the player forfeits the turn (a zero-cost "falter" no-op resolves for them).
 
-## 11. Out of scope in v1 (do not implement)
+## 11. Out of scope / deferred
 
-Online play, accounts, AI opponent (stub only), status-effect stacking beyond single buff/debuff timers, items/equipment, persistent progression. Additions here require user approval and a `SPEC.md` scope change.
+Not implemented yet, in rough priority order: **A.2** `control`/stun (turn-skip); **A.3** `resource` (mana drain/grant); **P1** `hit_chance`/blind + the reliability/miss system and competitive-vs-sandbox balance modes; **P3** entities/minions (summon/charm/taunt). Online play, accounts, AI opponent, items/equipment, and persistent progression remain out of scope; additions require user approval and a `SPEC.md` scope change.
 
 ---
 
 *Changelog (append newest first):*
-- 2026-07-03 — **Turn model → alternating single-action turns** (Worms-style, was simultaneous). Resolver is now `resolve_turn(state, action)`; deleted speed-ordering / snapshot-delta / double-KO tiebreak / defense-priority tier. HP floors at 0. Effect/cooldown upkeep is end-of-*your*-turn (owner-turn timing). **Defenses are now persistent stances** (frozen at cast, consume-on-hit, expire next turn). Round cap checked at the round boundary. Events enriched (`target` + `effect` summary) for clear result narration. Judge/`JudgedAction` unchanged.
-- 2026-07-02 — M1 resolver: pinned previously-ambiguous rules — signed-HP double-KO tiebreak, snapshot-delta simultaneity, fixed damage pipeline (type chart before mitigation), effect/cooldown staging (buff bites T+1..T+duration; cooldown-N blocks exactly N turns), reflect returns to attacker + floors 0, elements inert vs. undefended targets, buff/debuff single-slot + `stat` field, base-vs-effective stat rules. Added `buff_debuff_stat_shift_per_power` (1.0). Added `JudgedAction.stat` (power|speed).
+- 2026-07-03 — **Effect grammar (Stage A).** Replaced the 5 closed categories with an open-ended bundle of typed `EffectComponent`s (`damage`/`heal`/`dot`/`hot`/`stat`/`defense`). Rewrote §3–§8: persistent effect **list** (armor/poison/regen/weaken now persist and stack), **aggregate** bundle pricing with a super-additive surcharge, **component-kind** cooldowns, a three-phase turn with **start-of-turn over-time ticks + a new poison-KO path**, staged self-effects, and the pinned damage pipeline (type → armor → stance). Judge now emits a permissive component list; the server normalizes/clamps/caps. Deferred: stun, resource, blind/reliability, entities.
+- 2026-07-03 — **Turn model → alternating single-action turns** (Worms-style, was simultaneous). Resolver is now `resolve_turn(state, action)`; deleted speed-ordering / snapshot-delta / double-KO tiebreak / defense-priority tier. HP floors at 0. Effect/cooldown upkeep is end-of-*your*-turn (owner-turn timing). **Defenses are now persistent stances** (frozen at cast, consume-on-hit, expire next turn). Round cap checked at the round boundary. Events enriched (`target` + `effect` summary) for clear result narration.
+- 2026-07-02 — M1 resolver: pinned previously-ambiguous rules (signed-HP double-KO tiebreak, fixed damage pipeline, effect/cooldown staging, reflect returns to attacker, elements inert vs. undefended, buff/debuff single-slot). Superseded by the effect grammar above.
 - 2026-07-01 — Initial version from design sessions. All numeric values are pre-playtest placeholders.

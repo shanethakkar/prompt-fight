@@ -1,34 +1,52 @@
 {
-  "_comment": "Judge eval fixtures (JUDGE.md §7). element null = skip element assertion. power is an inclusive [lo,hi] range with tolerance baked in. Grow this file when playtesting reveals a misjudgment (M6).",
+  "_comment": "Judge eval fixtures (JUDGE.md §7) for the effect-grammar judge. Each asserts on the emitted component bundle; see test_judge_eval.py for the schema. power ranges bake in tolerance. Grow this file whenever playtesting reveals a misjudgment.",
   "fixtures": [
-    {"prompt": "I hurl a massive fireball at my opponent", "category": "attack", "element": "fire", "power": [5, 7]},
-    {"prompt": "I slash them with my steel sword", "category": "attack", "element": null, "power": [3, 5]},
-    {"prompt": "I call a lightning bolt down from the sky", "category": "attack", "element": "lightning", "power": [6, 8]},
-    {"prompt": "I zap them with a quick electric jab", "category": "attack", "element": "lightning", "power": [1, 4]},
-    {"prompt": "I summon a towering tidal wave to crush them", "category": "attack", "element": "water", "power": [6, 8]},
-    {"prompt": "I raise a sturdy shield to block the blow", "category": "defense", "element": null, "power": [3, 6]},
-    {"prompt": "I nimbly dodge to the side", "category": "defense", "element": null, "power": [1, 5]},
-    {"prompt": "I hold up a mirror to reflect their attack", "category": "defense", "element": null, "power": [3, 7]},
-    {"prompt": "I encase myself in thick ice armor", "category": "defense", "element": "water", "power": [3, 7]},
-    {"prompt": "I focus my energy so my next hit lands harder", "category": "buff", "element": null, "power": [3, 7], "stat": "power"},
-    {"prompt": "I gulp a speed potion to move much faster", "category": "buff", "element": null, "power": [3, 7], "stat": "speed"},
-    {"prompt": "I cast a curse that saps my opponent's strength", "category": "debuff", "element": null, "power": [3, 7], "stat": "power"},
-    {"prompt": "I cast a slow spell to bog my enemy down", "category": "debuff", "element": null, "power": [3, 7], "stat": "speed"},
-    {"prompt": "I chug a healing potion", "category": "heal", "element": "nature", "power": [3, 6]},
-    {"prompt": "I mend my wounds with soothing magic", "category": "heal", "element": null, "power": [3, 6]},
-    {"prompt": "Give me a shield and a sword and a tank and 50 more health", "category": "defense", "element": null, "power": [1, 10]},
-    {"prompt": "I throw a giant fireball while quietly healing a little", "category": "attack", "element": null, "power": [1, 10]},
-    {"prompt": "I raise an unbreakable fortress wall and also poke at them", "category": "defense", "element": null, "power": [1, 10]},
-    {"prompt": "I fully heal myself, and also put up a tiny shield", "category": "heal", "element": null, "power": [1, 10]},
-    {"prompt": "I collapse a black hole on top of them", "category": "attack", "element": null, "power": [9, 10]},
-    {"prompt": "I drop the entire sun onto the battlefield", "category": "attack", "element": null, "power": [9, 10]},
-    {"prompt": "I erase them from existence with raw cosmic power", "category": "attack", "element": null, "power": [9, 10]},
-    {"prompt": "asdfjkl banana", "category": "attack", "element": "physical", "power": [1, 2]},
-    {"prompt": "purple monday sneezes loudly at the ceiling", "category": "attack", "element": "physical", "power": [1, 2]}
+    {"prompt": "I hurl a massive fireball at my opponent", "types_exact": ["damage"], "element": "fire", "power": [5, 7]},
+    {"prompt": "I slash them with my steel sword", "types_exact": ["damage"], "power": [3, 5]},
+    {"prompt": "I call a lightning bolt down from the sky", "contains": ["damage"], "element": "lightning", "power": [6, 8]},
+    {"prompt": "I zap them with a quick electric jab", "contains": ["damage"], "element": "lightning", "power": [1, 4]},
+    {"prompt": "I summon a towering tidal wave to crush them", "contains": ["damage"], "element": "water", "power": [6, 8]},
+    {"prompt": "I collapse a black hole on top of them", "contains": ["damage"], "power": [9, 10]},
+    {"prompt": "I drop the entire sun onto the battlefield", "contains": ["damage"], "power": [9, 10]},
+
+    {"prompt": "I chug a healing potion", "types_exact": ["heal"], "checks": [{"type": "heal", "target": "self", "power": [3, 6]}]},
+    {"prompt": "I mend my wounds with soothing magic", "contains": ["heal"], "checks": [{"type": "heal", "target": "self"}]},
+
+    {"prompt": "I poison their bloodstream so they bleed out slowly", "contains": ["dot"], "excludes": ["damage"], "checks": [{"type": "dot", "target": "opponent", "duration": [2, 4]}]},
+    {"prompt": "I set them on fire and let the flames spread", "contains": ["dot"], "checks": [{"type": "dot", "target": "opponent", "element": "fire"}]},
+    {"prompt": "I make them bleed with a deep cut that keeps dripping", "contains": ["dot"], "checks": [{"type": "dot", "target": "opponent"}]},
+
+    {"prompt": "I surround myself in a regenerating aura that heals me each turn", "contains": ["hot"], "checks": [{"type": "hot", "target": "self", "duration": [2, 4]}]},
+
+    {"prompt": "I focus my energy so my next hits land much harder", "contains": ["stat"], "checks": [{"type": "stat", "stat": "power", "target": "self", "magnitude": [2, 8]}]},
+    {"prompt": "I enter an unstoppable berserker rage", "contains": ["stat"], "checks": [{"type": "stat", "stat": "power", "target": "self", "magnitude": [3, 8]}]},
+    {"prompt": "I gulp a speed potion to move much faster", "contains": ["stat"], "checks": [{"type": "stat", "stat": "speed", "target": "self", "magnitude": [2, 8]}]},
+    {"prompt": "I cast a curse that saps my opponent's strength", "contains": ["stat"], "checks": [{"type": "stat", "stat": "power", "target": "opponent", "magnitude": [-8, -2]}]},
+    {"prompt": "I cast a slow spell to bog my enemy down", "contains": ["stat"], "checks": [{"type": "stat", "stat": "speed", "target": "opponent", "magnitude": [-8, -2]}]},
+    {"prompt": "I freeze them solid so they can barely move", "contains": ["stat"], "checks": [{"type": "stat", "stat": "speed", "target": "opponent", "magnitude": [-8, -3]}]},
+    {"prompt": "I blind them by throwing sand in their eyes", "max_components": 2, "checks": [{"type": "stat", "target": "opponent"}]},
+    {"prompt": "I put on a full suit of enchanted plate armor", "contains": ["stat"], "checks": [{"type": "stat", "stat": "damage_taken", "target": "self", "magnitude": [-8, -2]}]},
+    {"prompt": "I mark them with a hex so every hit wounds them worse", "contains": ["stat"], "checks": [{"type": "stat", "stat": "damage_taken", "target": "opponent", "magnitude": [2, 8]}]},
+
+    {"prompt": "I raise a sturdy shield to block the blow", "contains": ["defense"], "checks": [{"type": "defense", "target": "self"}]},
+    {"prompt": "I nimbly dodge to the side", "contains": ["defense"], "checks": [{"type": "defense", "target": "self"}]},
+    {"prompt": "I hold up a mirror to reflect their attack", "contains": ["defense"], "checks": [{"type": "defense", "target": "self"}]},
+
+    {"prompt": "I heal myself to full and raise a shield at the same time", "min_components": 2, "contains": ["heal", "defense"]},
+    {"prompt": "I swing my flaming sword while buffing my own speed", "min_components": 2, "contains": ["damage", "stat"]},
+    {"prompt": "I put on plate armor and draw my sword", "min_components": 2, "contains": ["stat", "damage"]},
+    {"prompt": "I throw a fireball and poison the ground where they stand", "min_components": 2, "contains": ["damage", "dot"]},
+
+    {"prompt": "Give me a shield and a sword and a tank and 50 more health and a dragon and infinite mana", "max_components": 3},
+    {"prompt": "I unleash ten thousand attacks all at once from every direction", "max_components": 3},
+
+    {"prompt": "asdfjkl banana", "types_exact": ["damage"], "power": [1, 2]},
+    {"prompt": "purple monday sneezes loudly at the ceiling", "types_exact": ["damage"], "power": [1, 2]}
   ],
   "near_duplicate_pairs": [
-    {"a": "I throw a fireball at them", "b": "I hurl a fireball at my enemy", "category": "attack", "power": [4, 7]},
-    {"a": "I raise a big shield", "b": "I put up a large shield", "category": "defense", "power": [3, 7]},
-    {"a": "I slow my opponent down", "b": "I make my enemy move slower", "category": "debuff", "power": [3, 8], "stat": "speed"}
+    {"a": "I throw a fireball at them", "b": "I hurl a fireball at my enemy", "contains": ["damage"]},
+    {"a": "I poison them with a slow-acting venom", "b": "I inject them with a creeping poison", "contains": ["dot"]},
+    {"a": "I raise a big shield", "b": "I put up a large shield", "contains": ["defense"]},
+    {"a": "I slow my opponent down", "b": "I make my enemy move slower", "contains": ["stat"]}
   ]
 }

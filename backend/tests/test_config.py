@@ -15,8 +15,11 @@ def test_known_values() -> None:
     assert cfg.hp_start == 100
     assert cfg.mana_regen_per_turn == 3
     assert cfg.judge_model == "claude-haiku-4-5"
-    assert cfg.category_cost_multipliers.attack == 1.0
-    assert cfg.buff_debuff_stat_shift_per_power == 1.0
+    assert cfg.component_weights.damage == 1.0
+    assert cfg.bundle_multipliers["1"] == 1.0
+    assert cfg.max_components == 3
+    assert cfg.kind_cooldowns_turns.heal == 3
+    assert cfg.damage_taken_per_point == 0.1
     assert cfg.defense_stance_duration_turns == 1
 
 

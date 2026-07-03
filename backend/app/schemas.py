@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models import Category, GameState, JudgedAction
+from app.models import Action, GameState
 
 
 class PlayerSnapshot(BaseModel):
@@ -13,7 +13,8 @@ class PlayerSnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     mana: int
-    cooldowns: dict[Category, int] = Field(default_factory=dict)
+    # Cooldowns keyed by component-kind ("heal", "defense", "control").
+    cooldowns: dict[str, int] = Field(default_factory=dict)
 
 
 class JudgeRequest(BaseModel):
@@ -31,9 +32,10 @@ class JudgeResponse(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    action: JudgedAction | None = None
+    action: Action | None = None
     mana_cost: int | None = None
     affordable: bool | None = None
+    # True if any component-kind in the bundle is currently on cooldown.
     on_cooldown: bool | None = None
     error: str | None = None
     message: str | None = None
@@ -41,13 +43,13 @@ class JudgeResponse(BaseModel):
 
 
 class ResolveRequest(BaseModel):
-    """Resolve one action for the active player (state.active)."""
+    """Resolve one action bundle for the active player (state.active)."""
 
     model_config = ConfigDict(extra="forbid")
 
     match_id: str
     state: GameState
-    action: JudgedAction
+    action: Action
 
 
 class MatchConfig(BaseModel):
