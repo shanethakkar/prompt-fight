@@ -1,0 +1,31 @@
+# ---- Python / backend ----
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# ---- Node / frontend ----
+node_modules/
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+
+# ---- Env / secrets ----
+.env
+.env.local
+.env.*.local
+
+# ---- Replay data (keep the dir, ignore contents) ----
+data/replays/*
+!data/replays/.gitkeep
+
+# ---- OS / editor ----
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json

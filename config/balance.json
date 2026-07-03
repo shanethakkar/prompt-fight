@@ -1,0 +1,55 @@
+{
+  "_comment": "Single source of truth for all tunable constants. Never hardcode these in code. All values are pre-playtest placeholders — tune in M6. GAME_MECHANICS.md describes what each does.",
+
+  "judge_model": "claude-haiku-4-5",
+  "judge_temperature": 0,
+  "moderation_model_check_enabled": false,
+
+  "hp_start": 100,
+  "hp_max": 100,
+  "mana_start": 10,
+  "mana_max": 20,
+  "mana_regen_per_turn": 3,
+
+  "cost_exponent": 1.2,
+  "category_cost_multipliers": {
+    "attack": 1.0,
+    "defense": 0.8,
+    "buff": 0.9,
+    "debuff": 0.9,
+    "heal": 1.1
+  },
+
+  "attack_damage_multiplier": 3.0,
+  "heal_multiplier": 2.5,
+  "block_multiplier": 3.0,
+  "buff_debuff_duration_turns": 2,
+  "partial_dodge_damage_fraction": 0.5,
+  "reflect_return_fraction": 0.5,
+
+  "category_cooldowns_turns": {
+    "attack": 0,
+    "defense": 1,
+    "buff": 2,
+    "debuff": 2,
+    "heal": 3
+  },
+  "heavy_move_power_threshold": 8,
+  "heavy_move_extra_cooldown_turns": 1,
+
+  "type_advantage_multiplier": 1.5,
+  "type_disadvantage_multiplier": 0.75,
+  "type_chart_advantages": {
+    "fire": ["nature"],
+    "nature": ["water", "lightning"],
+    "water": ["fire"],
+    "lightning": ["water"],
+    "physical": []
+  },
+
+  "rewrites_per_turn": 2,
+  "max_turns": 30,
+  "input_timer_seconds": null,
+
+  "rate_limit_judge_calls_per_minute_per_ip": 20
+}
