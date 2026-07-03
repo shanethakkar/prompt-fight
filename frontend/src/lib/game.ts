@@ -75,6 +75,8 @@ export function describeComponent(c: EffectComponent): string {
       return `Barrier · pow ${c.power}`;
     case "control":
       return `Stun · ${c.duration}t`;
+    case "summon":
+      return `Summon ${c.name ?? "unit"} · ${c.hp}hp · ${c.element} ${c.power}`;
     default:
       return c.type;
   }
@@ -125,9 +127,16 @@ export function winnerLabel(
 
 /** A plain-language sentence telling the story of one playback beat's RESULT. */
 export function narrateResult(e: ResolutionEvent, names: Record<Side, string>): string {
-  const actor = names[e.actor];
-  const target = names[e.target];
+  const actor = e.actor_name ?? names[e.actor];
+  const target = e.target_name ?? names[e.target];
   const eff = e.effect;
+
+  if (e.kind === "summon") {
+    return `${actor} summons ${target}!`;
+  }
+  if (e.kind === "removed") {
+    return `${target} falls!`;
+  }
 
   // Over-time ticks fire at the start of the afflicted's turn.
   if (e.kind === "dot_tick") {

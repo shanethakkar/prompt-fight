@@ -25,6 +25,8 @@ def test_known_values() -> None:
     assert cfg.max_control_duration == 2
     assert cfg.stun_immunity_turns == 2
     assert cfg.kind_cooldowns_turns.control == 2
+    assert cfg.component_weights.summon == 0.7
+    assert cfg.max_entities_per_side == 3
     assert cfg.bundle_multipliers["1"] == 1.0
     assert cfg.max_components == 3
     assert cfg.kind_cooldowns_turns.heal == 3

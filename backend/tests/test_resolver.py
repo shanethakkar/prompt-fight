@@ -22,6 +22,7 @@ from app.models import (
     StatKind,
     Template,
     Unit,
+    Weapon,
 )
 from app.resolver import initial_game, resolve_turn
 from app.rules import normalize_components
@@ -659,3 +660,66 @@ def test_initial_game():
     assert g.round == 1 and g.active == "p1"
     assert g.p1.stickman.hp == 100 and g.p1.mana == 12 and g.p1.name == "A"
     assert g.p1.stickman.effects == [] and g.p1.cooldowns == {}
+
+
+# ---------------------------------------------------------------------------
+# Entities (P3.1b): summon, command, per-unit poison, death without loss
+# ---------------------------------------------------------------------------
+
+
+def orc(id="p1e1a", name="Orc", hp=45, power=6, effects=None):
+    return Unit(
+        id=id,
+        name=name,
+        kind="entity",
+        hp=hp,
+        max_hp=hp,
+        weapon=Weapon(power=power),
+        effects=effects or [],
+    )
+
+
+def test_summon_stages_an_entity():
+    r = turn(state(active="p1"), action({"type": "summon", "name": "Orc", "hp": 40, "power": 5}))
+    ents = r.state.p1.entities
+    assert len(ents) == 1 and ents[0].name == "Orc" and ents[0].kind == "entity"
+    assert ents[0].weapon.power == 5 and ents[0].hp == 40
+    assert any(e.kind == "summon" for e in r.events)
+
+
+def test_entity_attack_uses_its_weapon_power():
+    st = state(active="p1")
+    st.p1.entities = [orc(power=6)]  # weapon power 6 -> 18 dmg, not the component's power 2
+    r = turn(st, action({"type": "damage", "power": 2, "source_id": "p1e1a"}))
+    dmg = next(e for e in r.events if e.kind == "damage")
+    assert dmg.amount == 18 and dmg.actor_name == "Orc" and r.state.p2.stickman.hp == 82
+
+
+def test_poison_hits_the_targeted_entity_not_the_stickman():
+    st = state(active="p2")
+    st.p2.entities = [orc(id="p2e1a", hp=30, effects=[dot_eff(per_turn=5, source="p1")])]
+    r = turn(st, WEAK)  # p2's turn: the orc's poison ticks
+    tick = next(e for e in r.events if e.kind == "dot_tick")
+    assert tick.target_name == "Orc"
+    assert r.state.p2.entities[0].hp == 25 and r.state.p2.stickman.hp == 100
+
+
+def test_entity_death_removes_it_without_ending_the_match():
+    st = state(active="p2")
+    st.p2.entities = [orc(id="p2e1a", hp=3, effects=[dot_eff(per_turn=5, source="p1")])]
+    r = turn(st, WEAK)
+    assert r.state.p2.entities == [] and not r.match_over
+    assert any(e.kind == "removed" for e in r.events)
+
+
+def test_stickman_death_still_ends_the_match():
+    st = state(active="p2", p2=player(hp=3, name="P2", effects=[dot_eff(per_turn=5, source="p1")]))
+    r = turn(st, WEAK)
+    assert r.match_over and r.winner == "p1"
+
+
+def test_summon_respects_the_entity_cap():
+    st = state(active="p1")
+    st.p1.entities = [orc(id=f"p1e0{i}", name="X") for i in range(BAL.max_entities_per_side)]
+    r = turn(st, action({"type": "summon", "name": "Extra", "hp": 40, "power": 5}))
+    assert len(r.state.p1.entities) == BAL.max_entities_per_side  # full -> new one dropped

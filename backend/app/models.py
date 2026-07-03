@@ -38,6 +38,7 @@ class ComponentType(StrEnum):
     defense = "defense"  # a raised defensive stance (shield/dodge/reflect)
     barrier = "barrier"  # a durability pool that absorbs damage until it shatters
     control = "control"  # stun: the target skips their turn(s)
+    summon = "summon"  # bring a new entity onto your side (staged, acts next turn)
 
 
 class ComponentTarget(StrEnum):
@@ -125,6 +126,7 @@ COMPONENT_TEMPLATE: dict[ComponentType, Template] = {
     ComponentType.defense: Template.shield_raise,
     ComponentType.barrier: Template.shield_raise,
     ComponentType.control: Template.debuff_cloud,
+    ComponentType.summon: Template.buff_aura,
 }
 
 DEFENSE_TEMPLATE: dict[DefenseSubtype, Template] = {
@@ -177,10 +179,16 @@ class EffectComponent(BaseModel):
     # the real roster (invalid -> the relevant stickman). None -> stickman.
     source_id: str | None = None
     target_id: str | None = None
+    # summon only: the new entity's name, hp, tags, and optional starting item.
+    # Its weapon is anchored on this component's ``element`` + ``power``.
+    name: str | None = None
+    hp: int | None = None
+    tags: list[str] | None = None
+    item: str | None = None
 
 
 class RosterUnit(BaseModel):
-    """The judge's view of one unit — identity + rough HP only (no effects/barriers)."""
+    """The judge's view of one unit — identity, rough HP, kit (no effects/barriers)."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -189,6 +197,9 @@ class RosterUnit(BaseModel):
     kind: UnitKind = "stickman"
     hp: int
     max_hp: int
+    weapon: Weapon | None = None
+    tags: list[str] = Field(default_factory=list)
+    items: list[str] = Field(default_factory=list)
 
 
 class Roster(BaseModel):
@@ -286,6 +297,17 @@ class Barrier(BaseModel):
 UnitKind = Literal["stickman", "entity"]
 
 
+class Weapon(BaseModel):
+    """A unit's assumed weapon/kit — the anchor for its damage components (an
+    archer's bow, a dragon's fire). Assigned by the judge at summon; server-clamped."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = "fists"
+    element: Element = Element.physical
+    power: int = 4
+
+
 class Unit(BaseModel):
     """One combatant on the battlefield. Each side has a ``stickman`` (its core —
     if it dies, that side loses) plus zero or more summoned ``entities``. All
@@ -305,6 +327,11 @@ class Unit(BaseModel):
     barriers: list[Barrier] = Field(default_factory=list)
     # Turns of immunity to incoming stun after one wears off (anti stun-lock).
     stun_immunity: int = 0
+    # Kit + gear (P3.1b/P3.2). ``weapon`` anchors this unit's damage; ``tags`` are
+    # descriptors (e.g. "undead", "kryptonian") that P3.3 matchups will read.
+    weapon: Weapon | None = None
+    tags: list[str] = Field(default_factory=list)
+    items: list[str] = Field(default_factory=list)
 
 
 class SideState(BaseModel):
@@ -352,15 +379,20 @@ class ResolutionEvent(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    actor: Side  # who caused this beat (caster; for a tick, the effect's source)
+    actor: Side  # which side caused this beat (caster; for a tick, the effect's source)
     target: Side
-    kind: str  # component type, or "dot_tick" / "hot_tick"
+    kind: str  # component type, or "dot_tick" / "hot_tick" / "summon" / "removed"
     element: Element = Element.physical
     outcome: Outcome
     amount: int = 0  # hp delta magnitude (damage dealt or hp healed), always >= 0
     effect: EffectSummary | None = None
     template: Template | None = None
     narration: str = ""  # bundle flavor_text, set on the primary beat only
+    # The specific units involved (P3.1b), so playback can say "Orc hits Archer".
+    actor_id: str | None = None
+    target_id: str | None = None
+    actor_name: str | None = None
+    target_name: str | None = None
     # Post-beat snapshot for the renderer: display HP/mana of both players.
     state_delta: dict[str, int] = Field(default_factory=dict)
 

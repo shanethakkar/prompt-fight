@@ -20,7 +20,8 @@
     "stat": 0.42,
     "defense": 0.75,
     "barrier": 1.5,
-    "control": 5.0
+    "control": 5.0,
+    "summon": 0.7
   },
   "bundle_multipliers": {
     "1": 1.0,
@@ -49,6 +50,10 @@
 
   "max_control_duration": 2,
   "stun_immunity_turns": 2,
+
+  "max_entities_per_side": 3,
+  "summon_hp_min": 15,
+  "summon_hp_max": 80,
 
   "damage_taken_per_point": 0.1,
   "damage_taken_mult_floor": 0.25,

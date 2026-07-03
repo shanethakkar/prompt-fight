@@ -219,6 +219,9 @@ describe("statusChips", () => {
       effects: [],
       barriers: [],
       stun_immunity: 0,
+      weapon: null,
+      tags: [],
+      items: [],
       ...over,
     };
   }

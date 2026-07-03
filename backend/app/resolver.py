@@ -43,6 +43,7 @@ from app.models import (
     SideState,
     Template,
     Unit,
+    Weapon,
 )
 from app.rules import (
     bundle_cost,
@@ -94,6 +95,16 @@ def _stance(player: Unit) -> ActiveEffect | None:
 
 def _is_stunned(player: Unit) -> bool:
     return any(e.kind is EffectKind.control and e.turns_remaining > 0 for e in player.effects)
+
+
+def _side_units(side: SideState) -> list[Unit]:
+    return [side.stickman, *side.entities]
+
+
+def _find_unit(side: SideState, uid: str | None) -> Unit | None:
+    if uid is None:
+        return None
+    return next((u for u in _side_units(side) if u.id == uid), None)
 
 
 def _absorb_through_barriers(target: Unit, amount: int) -> tuple[int, int, int, list[str]]:
@@ -202,115 +213,175 @@ def resolve_turn(state: GameState, action: Action | None, balance: BalanceConfig
 
     events: list[ResolutionEvent] = []
 
-    # --- START OF TURN: this player's over-time effects tick (frozen magnitudes).
-    for e in active.effects:
-        if e.kind is EffectKind.dot:
-            active.hp = max(0, active.hp - e.per_turn)
-            events.append(
-                ResolutionEvent(
-                    actor=e.source,
-                    target=a_side,
-                    kind="dot_tick",
-                    element=e.element,
-                    outcome=Outcome.ticked,
-                    amount=e.per_turn,
-                    effect=EffectSummary(kind="dot", per_turn=e.per_turn, label=e.label),
-                    template=Template.debuff_cloud,
-                    state_delta=_display(players, balance),
-                )
-            )
-        elif e.kind is EffectKind.hot:
-            before = active.hp
-            active.hp = min(balance.hp_max, active.hp + e.per_turn)
-            events.append(
-                ResolutionEvent(
-                    actor=a_side,
-                    target=a_side,
-                    kind="hot_tick",
-                    outcome=Outcome.ticked,
-                    amount=active.hp - before,
-                    effect=EffectSummary(kind="hot", per_turn=e.per_turn, label=e.label),
-                    template=Template.heal_glow,
-                    state_delta=_display(players, balance),
-                )
-            )
+    def _snap() -> dict[str, int]:
+        return _display(players, balance)
 
-    # A dot can KO the active player before they ever act -> the source wins.
+    # --- START OF TURN: over-time effects tick on EVERY active-side unit.
+    for unit in _side_units(active_side):
+        for e in list(unit.effects):
+            if e.kind is EffectKind.dot:
+                unit.hp = max(0, unit.hp - e.per_turn)
+                events.append(
+                    ResolutionEvent(
+                        actor=e.source,
+                        target=a_side,
+                        target_id=unit.id,
+                        target_name=unit.name,
+                        kind="dot_tick",
+                        element=e.element,
+                        outcome=Outcome.ticked,
+                        amount=e.per_turn,
+                        effect=EffectSummary(kind="dot", per_turn=e.per_turn, label=e.label),
+                        template=Template.debuff_cloud,
+                        state_delta=_snap(),
+                    )
+                )
+            elif e.kind is EffectKind.hot:
+                before = unit.hp
+                unit.hp = min(unit.max_hp, unit.hp + e.per_turn)
+                events.append(
+                    ResolutionEvent(
+                        actor=a_side,
+                        target=a_side,
+                        target_id=unit.id,
+                        target_name=unit.name,
+                        kind="hot_tick",
+                        outcome=Outcome.ticked,
+                        amount=unit.hp - before,
+                        effect=EffectSummary(kind="hot", per_turn=e.per_turn, label=e.label),
+                        template=Template.heal_glow,
+                        state_delta=_snap(),
+                    )
+                )
+
+    # A dot can KO the active STICKMAN before they act -> the source wins.
     if active.hp <= 0:
         return ResolveResult(events=events, state=ns, match_over=True, winner=o_side)
+    _cull_entities(active_side, a_side, events, players, balance)  # entities poisoned to death
 
-    # A stun makes the active player skip ACT. The START ticks above still fired,
-    # so a stunned player can still be poisoned to death this turn.
+    # A stun on the stickman makes the whole side skip ACT.
     stunned = _is_stunned(active)
     if stunned:
         events.append(
             ResolutionEvent(
                 actor=a_side,
                 target=a_side,
+                actor_id=active.id,
+                target_id=active.id,
                 kind="stun_skip",
                 outcome=Outcome.fizzled,
                 effect=EffectSummary(kind="control", label="stunned"),
                 template=Template.debuff_cloud,
-                state_delta=_display(players, balance),
+                state_delta=_snap(),
             )
         )
     components = [] if (stunned or action is None) else action.components
     flavor = action.flavor_text if action is not None else ""
+    act_speed = action.speed if action is not None else 5
 
-    # --- ACT: pay the aggregate cost, then apply each component in order.
+    # --- ACT: pay the aggregate cost, then apply each component to its unit(s).
     active_side.mana = max(0, active_side.mana - bundle_cost(components, balance))
-    atk_speed = effective_speed(action.speed if action is not None else 5, active.effects)
-    staged: list[ActiveEffect] = []  # self-targeted effects installed post-decrement
-    staged_barriers: list[Barrier] = []
-    stance_available = True  # the opponent's stance is consumed by the first hit
+    staged: list[tuple[str, ActiveEffect]] = []  # (unit_id, effect) installed post-tick
+    staged_barriers: list[tuple[str, Barrier]] = []
+    staged_summons: list[Unit] = []
+    summon_idx = 0
     primary_narrated = False
 
     for c in components:
+        source_unit = _find_unit(active_side, c.source_id) or active
+        if source_unit is not active and _is_stunned(source_unit):
+            events.append(
+                ResolutionEvent(
+                    actor=a_side,
+                    target=a_side,
+                    actor_id=source_unit.id,
+                    actor_name=source_unit.name,
+                    target_id=source_unit.id,
+                    kind="stun_skip",
+                    outcome=Outcome.fizzled,
+                    effect=EffectSummary(kind="control", label="stunned"),
+                    state_delta=_snap(),
+                )
+            )
+            primary_narrated = True
+            continue
+
+        # Resolve the target unit. An unspecified id defaults to the stickman; a
+        # *specified* enemy id that no longer exists (removed earlier this turn)
+        # fizzles — we never silently retarget a named unit.
+        self_targeted = c.target is ComponentTarget.caster or c.type is ComponentType.summon
+        if self_targeted:
+            target_unit: Unit = _find_unit(active_side, c.target_id) or active
+        elif c.target_id is None:
+            target_unit = opponent
+        else:
+            found = _find_unit(opp_side, c.target_id)
+            if found is None:
+                events.append(
+                    ResolutionEvent(
+                        actor=a_side,
+                        target=o_side,
+                        actor_id=source_unit.id,
+                        actor_name=source_unit.name,
+                        kind="fizzle",
+                        outcome=Outcome.fizzled,
+                        narration="" if primary_narrated else flavor,
+                        state_delta=_snap(),
+                    )
+                )
+                primary_narrated = True
+                continue
+            target_unit = found
+
         narration = "" if primary_narrated else flavor
-        target: Side = o_side
+        target_side_key: Side = a_side if self_targeted else o_side
         outcome = Outcome.applied
         amount = 0
         summary: EffectSummary | None = None
-        shatter: list[str] = []  # barrier labels that broke on this beat
-        template = _component_template(c, action.template)
+        shatter: list[str] = []
+        template = _component_template(c, action.template if action is not None else Template.melee)
+        hit_unit = target_unit
+        ev_target_id = target_unit.id
+        ev_target_name = target_unit.name
 
         if c.type is ComponentType.damage:
-            atk_power = effective_power(c.power or 0, active.effects)
-            target, amount, outcome, summary = _apply_damage(
+            base = source_unit.weapon.power if source_unit.weapon else (c.power or 0)
+            element = source_unit.weapon.element if source_unit.weapon else c.element
+            atk_power = effective_power(base, source_unit.effects)
+            atk_speed = effective_speed(act_speed, source_unit.effects)
+            tside, amount, outcome, summary = _apply_damage(
                 a_side,
                 o_side,
-                active,
-                opponent,
-                c.element,
+                source_unit,
+                target_unit,
+                element,
                 atk_power,
                 atk_speed,
-                stance_available,
+                True,
                 balance,
             )
-            stance_available = False  # first damage consumes any stance; later hits land bare
-            hit = active if target == a_side else opponent
-            # Durability pools sit closest to HP: they soak whatever the stance let
-            # through (a reflected hit is absorbed by the ATTACKER's own barrier).
-            amount, absorbed, remaining, shatter = _absorb_through_barriers(hit, amount)
+            hit_unit = source_unit if tside == a_side else target_unit  # reflect -> the attacker
+            target_side_key, ev_target_id, ev_target_name = tside, hit_unit.id, hit_unit.name
+            amount, absorbed, remaining, shatter = _absorb_through_barriers(hit_unit, amount)
             if absorbed:
                 summary = summary or EffectSummary(kind="barrier")
                 summary.barrier_absorbed = absorbed
                 summary.barrier_remaining = remaining
                 if amount == 0:
-                    outcome = Outcome.blocked  # the pool ate the whole hit
-            hit.hp = max(0, hit.hp - amount)
+                    outcome = Outcome.blocked
+            hit_unit.hp = max(0, hit_unit.hp - amount)
 
         elif c.type is ComponentType.heal:
-            before = active.hp
-            active.hp = min(
-                balance.hp_max, active.hp + round((c.power or 0) * balance.heal_multiplier)
+            before = target_unit.hp
+            target_unit.hp = min(
+                target_unit.max_hp, target_unit.hp + round((c.power or 0) * balance.heal_multiplier)
             )
-            target, outcome, amount = a_side, Outcome.healed, active.hp - before
-            summary = EffectSummary(kind="heal", magnitude=active.hp - before)
+            outcome, amount = Outcome.healed, target_unit.hp - before
+            summary = EffectSummary(kind="heal", magnitude=amount)
 
         elif c.type is ComponentType.dot:
             per_turn = max(1, round((c.power or 0) * balance.dot_multiplier))
-            opponent.effects.append(
+            target_unit.effects.append(
                 ActiveEffect(
                     kind=EffectKind.dot,
                     turns_remaining=c.duration or 1,
@@ -327,15 +398,17 @@ def resolve_turn(state: GameState, action: Action | None, balance: BalanceConfig
         elif c.type is ComponentType.hot:
             per_turn = max(1, round((c.power or 0) * balance.hot_multiplier))
             staged.append(
-                ActiveEffect(
-                    kind=EffectKind.hot,
-                    turns_remaining=c.duration or 1,
-                    source=a_side,
-                    per_turn=per_turn,
-                    label="regen",
+                (
+                    target_unit.id,
+                    ActiveEffect(
+                        kind=EffectKind.hot,
+                        turns_remaining=c.duration or 1,
+                        source=a_side,
+                        per_turn=per_turn,
+                        label="regen",
+                    ),
                 )
             )
-            target = a_side
             summary = EffectSummary(
                 kind="hot", per_turn=per_turn, duration=c.duration, label="regen"
             )
@@ -350,12 +423,10 @@ def resolve_turn(state: GameState, action: Action | None, balance: BalanceConfig
                 magnitude=c.magnitude or 0,
                 label=label,
             )
-            if c.target is ComponentTarget.caster:
-                staged.append(eff)
-                target = a_side
+            if self_targeted:
+                staged.append((target_unit.id, eff))
             else:
-                opponent.effects.append(eff)
-                target = o_side
+                target_unit.effects.append(eff)
             summary = EffectSummary(
                 kind="stat", stat=c.stat, magnitude=c.magnitude, duration=c.duration, label=label
             )
@@ -363,35 +434,38 @@ def resolve_turn(state: GameState, action: Action | None, balance: BalanceConfig
         elif c.type is ComponentType.defense:
             subtype = c.subtype or DefenseSubtype.shield
             staged.append(
-                ActiveEffect(
-                    kind=EffectKind.defense,
-                    turns_remaining=balance.defense_stance_duration_turns,
-                    source=a_side,
-                    subtype=subtype,
-                    element=c.element,
-                    power=effective_power(c.power or 0, active.effects),
-                    speed=atk_speed,
-                    label=subtype.value,
+                (
+                    target_unit.id,
+                    ActiveEffect(
+                        kind=EffectKind.defense,
+                        turns_remaining=balance.defense_stance_duration_turns,
+                        source=a_side,
+                        subtype=subtype,
+                        element=c.element,
+                        power=effective_power(c.power or 0, target_unit.effects),
+                        speed=effective_speed(act_speed, target_unit.effects),
+                        label=subtype.value,
+                    ),
                 )
             )
-            target = a_side
             summary = EffectSummary(kind=subtype.value, label=subtype.value)
 
         elif c.type is ComponentType.barrier:
             pool = max(1, round((c.power or 0) * balance.barrier_pool_per_power))
             staged_barriers.append(
-                Barrier(pool=pool, element=c.element, source=a_side, label="barrier")
+                (
+                    target_unit.id,
+                    Barrier(pool=pool, element=c.element, source=a_side, label="barrier"),
+                )
             )
-            target = a_side
             summary = EffectSummary(kind="barrier", barrier_remaining=pool)
 
         elif c.type is ComponentType.control:
-            # A stun lands immediately on a non-stunned, non-immune opponent.
-            if _is_stunned(opponent) or opponent.stun_immunity > 0:
-                target, outcome = o_side, Outcome.fizzled
+            if _is_stunned(target_unit) or target_unit.stun_immunity > 0:
+                outcome = Outcome.fizzled
                 summary = EffectSummary(kind="control", label="immune")
             else:
-                opponent.effects.append(
+                target_unit.effects.append(
                     ActiveEffect(
                         kind=EffectKind.control,
                         turns_remaining=c.duration or 1,
@@ -399,13 +473,34 @@ def resolve_turn(state: GameState, action: Action | None, balance: BalanceConfig
                         label="stunned",
                     )
                 )
-                target = o_side
                 summary = EffectSummary(kind="control", duration=c.duration, label="stunned")
+
+        elif c.type is ComponentType.summon:
+            new_id = f"{a_side}e{ns.round}{'abcde'[summon_idx]}"
+            summon_idx += 1
+            hp = c.hp or 40
+            new_unit = Unit(
+                id=new_id,
+                name=c.name or "Summon",
+                kind="entity",
+                hp=hp,
+                max_hp=hp,
+                weapon=Weapon(element=c.element, power=c.power or 4),
+                tags=list(c.tags or []),
+                items=[c.item] if c.item else [],
+            )
+            staged_summons.append(new_unit)
+            ev_target_id, ev_target_name = new_unit.id, new_unit.name
+            summary = EffectSummary(kind="summon", label=new_unit.name)
 
         events.append(
             ResolutionEvent(
                 actor=a_side,
-                target=target,
+                target=target_side_key,
+                actor_id=source_unit.id,
+                actor_name=source_unit.name,
+                target_id=ev_target_id,
+                target_name=ev_target_name,
                 kind=c.type.value,
                 element=c.element,
                 outcome=outcome,
@@ -413,47 +508,58 @@ def resolve_turn(state: GameState, action: Action | None, balance: BalanceConfig
                 effect=summary,
                 template=template,
                 narration=narration,
-                state_delta=_display(players, balance),
+                state_delta=_snap(),
             )
         )
         primary_narrated = True
 
-        for label in shatter:  # one beat per pool that broke this component
+        for label in shatter:
             events.append(
                 ResolutionEvent(
                     actor=a_side,
-                    target=target,
+                    target=target_side_key,
+                    target_id=hit_unit.id,
+                    target_name=hit_unit.name,
                     kind="barrier_shatter",
                     outcome=Outcome.shattered,
                     effect=EffectSummary(kind="barrier", label=label),
                     template=Template.shield_raise,
-                    state_delta=_display(players, balance),
+                    state_delta=_snap(),
                 )
             )
 
-    # --- END OF TURN upkeep for the ACTIVE player only.
-    _decrement_effects(active)
-    # When a stun wears off, grant the victim brief immunity (anti stun-lock);
-    # otherwise count that immunity window down on their own turns.
-    if stunned and not _is_stunned(active):
-        active.stun_immunity = balance.stun_immunity_turns
-    elif active.stun_immunity > 0:
-        active.stun_immunity -= 1
-    _install_staged(active, staged, balance)
-    if staged_barriers:  # barriers have no timer; kept until broken, newest capped
-        active.barriers.extend(staged_barriers)
-        active.barriers = active.barriers[-balance.max_barriers_per_player :]
+    # --- END OF TURN upkeep for the ACTIVE side's units.
+    for unit in _side_units(active_side):
+        was_stunned = _is_stunned(unit)
+        _decrement_effects(unit)
+        if was_stunned and not _is_stunned(unit):
+            unit.stun_immunity = balance.stun_immunity_turns
+        elif unit.stun_immunity > 0:
+            unit.stun_immunity -= 1
+    for uid, eff in staged:
+        _install_staged(_find_unit(active_side, uid) or active, [eff], balance)
+    for uid, bar in staged_barriers:
+        unit = _find_unit(active_side, uid) or active
+        unit.barriers.append(bar)
+        unit.barriers = unit.barriers[-balance.max_barriers_per_player :]
+    for new_unit in staged_summons:  # install if under the roster cap
+        if len(active_side.entities) < balance.max_entities_per_side:
+            active_side.entities.append(new_unit)
     active_side.cooldowns = {k: t - 1 for k, t in active_side.cooldowns.items() if t - 1 > 0}
     for k, cd in kind_cooldowns(components, balance).items():
         active_side.cooldowns[k] = cd
     active_side.mana = min(balance.mana_max, active_side.mana + balance.mana_regen_per_turn)
 
-    # --- Match-over check + advance the turn.
+    # Entities killed during ACT are removed from both sides (no loss for an entity).
+    _cull_entities(active_side, a_side, events, players, balance)
+    _cull_entities(opp_side, o_side, events, players, balance)
+
+    # --- Match-over (STICKMAN death only, decided once) + advance the turn.
     match_over = False
     winner: Side | Literal["draw"] | None = None
     if opponent.hp <= 0:
         match_over, winner = True, a_side
-    elif active.hp <= 0:  # e.g. a reflected hit killed the attacker
+    elif active.hp <= 0:  # e.g. a reflected hit killed the attacker's stickman
         match_over, winner = True, o_side
     elif a_side == "p1":
         ns.active = "p2"
@@ -471,11 +577,35 @@ def resolve_turn(state: GameState, action: Action | None, balance: BalanceConfig
                 kind="fizzle",
                 outcome=Outcome.fizzled,
                 narration=flavor,
-                state_delta=_display(players, balance),
+                state_delta=_snap(),
             )
         )
 
     return ResolveResult(events=events, state=ns, match_over=match_over, winner=winner)
+
+
+def _cull_entities(
+    side: SideState,
+    side_key: Side,
+    events: list[ResolutionEvent],
+    players: dict[str, SideState],
+    balance: BalanceConfig,
+) -> None:
+    """Remove any entities at 0 hp from a side, emitting a 'removed' beat each."""
+    for unit in [u for u in side.entities if u.hp <= 0]:
+        side.entities.remove(unit)
+        events.append(
+            ResolutionEvent(
+                actor=side_key,
+                target=side_key,
+                target_id=unit.id,
+                target_name=unit.name,
+                kind="removed",
+                outcome=Outcome.fizzled,
+                effect=EffectSummary(kind="removed", label=unit.name),
+                state_delta=_display(players, balance),
+            )
+        )
 
 
 def _decrement_effects(player: Unit) -> None:

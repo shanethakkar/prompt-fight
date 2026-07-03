@@ -74,6 +74,13 @@ for "put on plate armor", "conjure a force field", "wrap myself in a lasting war
 `duration` (1-2). Use for "freeze them solid", "petrify them", "stun them", "stop \
 time", "knock them out cold", "trap them so they can't move" — total loss of a turn, \
 NOT just slowing them.
+- summon — bring a NEW fighter onto YOUR side (orc, archer, dragon, zombie, golem…). \
+target self. Set `name`, `hp` (its toughness 15-80 by size: goblin ~20, orc ~45, \
+dragon ~75), and `power`+`element` = its ASSUMED WEAPON from what it IS (archer = \
+physical arrows ~5, knight = physical sword ~5, mage = fire ~6, dragon = fire ~8, \
+skeleton = physical ~3). Optional `tags` (e.g. ["undead"], ["flying"]) and `item` (a \
+weapon/armor it spawns holding). A summon takes your WHOLE turn — you CANNOT summon \
+and attack in the same command; the new unit acts on your NEXT turn.
 
 CHOOSING dot VS stat: if the prompt describes ongoing HP loss ("bleed", "burn", \
 "poison courses through them"), use `dot`. If it describes making them WEAKER or \
@@ -140,6 +147,12 @@ duration 1 opponent], "A crackling jolt leaves them reeling."
 self], "A swig and a braced shield."
 "I collapse a black hole on them" -> [damage physical power 10], speed 2, \
 template aoe_burst, "Space buckles into a black hole."
+"I summon a fierce orc wielding a battle axe" -> [summon name "Orc" hp 45 power 6 \
+physical item "battle axe" tags ["orc"]], "An orc lumbers onto the field, axe raised."
+"I raise a skeleton archer to fight for me" -> [summon name "Skeleton Archer" hp 25 \
+power 5 physical tags ["undead"]], "Bones clatter up, bow drawn."
+"My orc charges their wizard" (orc = your unit p1e2a, wizard = enemy p2e1b) -> \
+[damage source_id p1e2a target_id p2e1b], "The orc barrels into the wizard."
 "asdfjkl banana" -> [damage physical power 1], "A confused flail hits nothing."
 """
 
@@ -195,6 +208,20 @@ _COMPONENT_SCHEMA: dict = {
             "enum": _values(DefenseSubtype),
             "description": "defense only: shield | dodge | reflect.",
         },
+        "name": {"type": "string", "description": "summon only: the new unit's name."},
+        "hp": {
+            "type": "integer",
+            "minimum": 15,
+            "maximum": 80,
+            "description": "summon only: the new unit's toughness (by size).",
+        },
+        "tags": {
+            "type": "array",
+            "items": {"type": "string"},
+            "maxItems": 4,
+            "description": "summon only: descriptors, e.g. ['undead','flying'].",
+        },
+        "item": {"type": "string", "description": "summon only: a starting weapon/armor."},
     },
     "required": ["type"],
 }
@@ -257,7 +284,12 @@ def render_roster(roster: Roster) -> str:
     """Render the battlefield for the judge's user message (identity + rough HP only)."""
 
     def _line(u) -> str:
-        return f'  {u.id} "{u.name}" ({u.kind}, {u.hp}/{u.max_hp} hp)'
+        extra = ""
+        if u.weapon:
+            extra += f", weapon {u.weapon.element} {u.weapon.power}"
+        if u.tags:
+            extra += f", tags {u.tags}"
+        return f'  {u.id} "{u.name}" ({u.kind}, {u.hp}/{u.max_hp} hp{extra})'
 
     you = "\n".join(_line(u) for u in roster.you) or "  (none)"
     foe = "\n".join(_line(u) for u in roster.foe) or "  (none)"

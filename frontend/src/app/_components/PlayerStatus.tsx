@@ -1,5 +1,5 @@
-import type { MatchConfig, SideState } from "@/lib/types";
-import { pct, statusChips, type ChipTone } from "@/lib/game";
+import type { MatchConfig, SideState, Unit } from "@/lib/types";
+import { capitalize, pct, statusChips, type Chip, type ChipTone } from "@/lib/game";
 
 const CHIP_CLASS: Record<ChipTone, string> = {
   buff: "bg-emerald-900/60 text-emerald-300",
@@ -7,6 +7,43 @@ const CHIP_CLASS: Record<ChipTone, string> = {
   defense: "bg-sky-900/60 text-sky-300",
   cooldown: "bg-zinc-800 text-zinc-400",
 };
+
+function Chips({ chips }: { chips: Chip[] }) {
+  if (!chips.length) return null;
+  return (
+    <div className="flex flex-wrap gap-1 text-[10px]">
+      {chips.map((c, i) => (
+        <span key={i} className={`rounded px-1.5 py-0.5 ${CHIP_CLASS[c.tone]}`}>
+          {c.text}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** One entity row in the roster: name + kit, an HP bar scaled to its own max, and chips. */
+function EntityRow({ unit }: { unit: Unit }) {
+  const kit = unit.weapon ? `${capitalize(unit.weapon.element)} ${unit.weapon.power}` : "";
+  const tags = unit.tags.length ? ` · ${unit.tags.join(", ")}` : "";
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-2">
+      <div className="flex justify-between text-xs">
+        <span className="font-medium text-zinc-200">{unit.name}</span>
+        <span className="text-zinc-500">
+          {kit}
+          {tags}
+        </span>
+      </div>
+      <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-zinc-800">
+        <div
+          className="h-full rounded-full bg-emerald-500/80 transition-all duration-500"
+          style={{ width: `${pct(unit.hp, unit.max_hp)}%` }}
+        />
+      </div>
+      <Chips chips={statusChips(unit)} />
+    </div>
+  );
+}
 
 export function Bar({
   label,
@@ -46,7 +83,6 @@ export function PlayerStatus({
   config: MatchConfig;
   active?: boolean;
 }) {
-  const chips = statusChips(player.stickman, player.cooldowns);
   return (
     <div
       className={`flex flex-col gap-2 rounded-xl border p-3 ${
@@ -56,12 +92,11 @@ export function PlayerStatus({
       <div className="font-semibold">{player.name}</div>
       <Bar label="HP" value={player.stickman.hp} max={config.hp_max} color="bg-emerald-500" />
       <Bar label="Mana" value={player.mana} max={config.mana_max} color="bg-sky-500" />
-      {chips.length > 0 && (
-        <div className="flex flex-wrap gap-1 text-[10px]">
-          {chips.map((c, i) => (
-            <span key={i} className={`rounded px-1.5 py-0.5 ${CHIP_CLASS[c.tone]}`}>
-              {c.text}
-            </span>
+      <Chips chips={statusChips(player.stickman, player.cooldowns)} />
+      {player.entities.length > 0 && (
+        <div className="mt-1 flex flex-col gap-1.5">
+          {player.entities.map((u) => (
+            <EntityRow key={u.id} unit={u} />
           ))}
         </div>
       )}

@@ -34,6 +34,7 @@ Capture INTENT with components; keep flavor in `flavor_text`. A "magic wand that
 - **`defense`** (self) — a one-shot reactive stance for the opponent's next turn. `subtype` (shield/dodge/reflect), `power`, `element`.
 - **`barrier`** (self) — a persistent durability pool (armor / ward / force field) that soaks hits across many turns until it shatters. `power`, `element`.
 - **`control`** (opponent) — a stun: the target skips their turn(s). `duration` (1–2). For "freeze solid", "petrify", "stun", "knock out", "stop time".
+- **`summon`** (self, P3.1b) — bring a new entity onto your side. `name`, `hp` (15–80 by size), weapon (`element`+`power`) inferred from what it IS (archer→bow, dragon→fire/high-hp), optional `tags`/`item`. A summon takes the whole command (no attacking); the unit acts next turn. Reference existing units by id (`source_id`/`target_id`) — "my orc attacks their wizard".
 
 **`dot` vs `stat`:** ongoing HP loss ("bleed", "burn", "poison") → `dot`. Making them weaker/slower (no HP loss) → `stat`. **`defense` vs `barrier` vs `stat(damage_taken)`:** one-turn block/dodge/parry → `defense`; durable worn armor / lasting ward → `barrier`; "they take more damage" (curse/mark) → `stat damage_taken +` on the opponent. **`stat(speed)` vs `control`:** merely slower/blinded → `stat speed −`; unable to act at all (frozen solid, petrified, knocked out) → `control`. **Deferred approximations** (until later phases add them): "blind" → a `speed` debuff on the opponent; "drain their mana" → nearest available.
 

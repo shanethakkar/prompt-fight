@@ -11,7 +11,8 @@ export type ComponentType =
   | "stat"
   | "defense"
   | "barrier"
-  | "control";
+  | "control"
+  | "summon";
 
 export type ComponentTarget = "self" | "opponent";
 
@@ -71,6 +72,11 @@ export interface EffectComponent {
   subtype: DefenseSubtype | null;
   source_id: string | null;
   target_id: string | null;
+  // summon only
+  name?: string | null;
+  hp?: number | null;
+  tags?: string[] | null;
+  item?: string | null;
 }
 
 export interface Action {
@@ -107,6 +113,12 @@ export interface Barrier {
 
 export type UnitKind = "stickman" | "entity";
 
+export interface Weapon {
+  name: string;
+  element: Element;
+  power: number;
+}
+
 export interface Unit {
   id: string;
   name: string;
@@ -116,6 +128,9 @@ export interface Unit {
   effects: ActiveEffect[];
   barriers: Barrier[];
   stun_immunity: number;
+  weapon: Weapon | null;
+  tags: string[];
+  items: string[];
 }
 
 export interface SideState {
@@ -163,6 +178,11 @@ export interface ResolutionEvent {
   template: Template | null;
   narration: string;
   state_delta: StateDelta;
+  // The specific units involved (P3.1b) — playback says "Orc hits Archer".
+  actor_id?: string | null;
+  target_id?: string | null;
+  actor_name?: string | null;
+  target_name?: string | null;
 }
 
 export interface ResolveResult {

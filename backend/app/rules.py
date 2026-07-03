@@ -61,7 +61,16 @@ def build_roster(state: GameState, caster: Side) -> Roster:
     def _units(key: str) -> list[RosterUnit]:
         side = state.p1 if key == "p1" else state.p2
         return [
-            RosterUnit(id=u.id, name=u.name, kind=u.kind, hp=max(0, u.hp), max_hp=u.max_hp)
+            RosterUnit(
+                id=u.id,
+                name=u.name,
+                kind=u.kind,
+                hp=max(0, u.hp),
+                max_hp=u.max_hp,
+                weapon=u.weapon,
+                tags=u.tags,
+                items=u.items,
+            )
             for u in (side.stickman, *side.entities)
         ]
 
@@ -167,6 +176,20 @@ def normalize_components(
             seen_control = True
             cdur = _clamp(_int(item.get("duration"), 1), 1, balance.max_control_duration)
             comp = EffectComponent(type=ctype, target=ComponentTarget.opponent, duration=cdur)
+        elif ctype is ComponentType.summon:
+            raw_tags = item.get("tags")
+            tags = [str(t)[:20] for t in raw_tags][:4] if isinstance(raw_tags, list) else []
+            item_name = item.get("item")
+            comp = EffectComponent(
+                type=ctype,
+                target=ComponentTarget.caster,
+                element=element,  # the new unit's weapon element
+                power=power,  # the new unit's weapon power (anchors its attacks)
+                name=str(item.get("name") or "summon")[:24],
+                hp=_clamp(_int(item.get("hp"), 40), balance.summon_hp_min, balance.summon_hp_max),
+                tags=tags,
+                item=str(item_name)[:24] if isinstance(item_name, str) else None,
+            )
 
         if comp is None:
             continue
@@ -174,6 +197,12 @@ def normalize_components(
         comp.source_id = src if isinstance(src, str) else None
         comp.target_id = tid if isinstance(tid, str) else None
         out.append(comp)
+
+    # "Can't summon and attack the same turn": a bundle that summons carries no
+    # offensive component (whole-bundle rule; per-source relaxation is a later step).
+    if any(c.type is ComponentType.summon for c in out):
+        offensive = {ComponentType.damage, ComponentType.dot, ComponentType.control}
+        out = [c for c in out if c.type not in offensive]
 
     if roster is not None:
         for c in out:
@@ -205,6 +234,9 @@ def component_weight(c: EffectComponent, balance: BalanceConfig) -> float:
         return (c.power or 0) * w.barrier
     if c.type is ComponentType.control:
         return w.control * (c.duration or 1)
+    if c.type is ComponentType.summon:
+        # A summon's price scales with the body it puts on the board (hp + weapon).
+        return ((c.hp or 0) / 10 + (c.power or 0)) * w.summon
     return 0.0
 
 
