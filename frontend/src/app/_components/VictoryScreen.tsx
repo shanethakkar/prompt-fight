@@ -18,10 +18,12 @@ export function VictoryScreen({
       </h1>
       <div className="flex gap-8 text-lg">
         <span>
-          {finalState.p1.name}: <span className="font-semibold">{finalState.p1.hp} HP</span>
+          {finalState.p1.name}:{" "}
+          <span className="font-semibold">{finalState.p1.stickman.hp} HP</span>
         </span>
         <span>
-          {finalState.p2.name}: <span className="font-semibold">{finalState.p2.hp} HP</span>
+          {finalState.p2.name}:{" "}
+          <span className="font-semibold">{finalState.p2.stickman.hp} HP</span>
         </span>
       </div>
       <button

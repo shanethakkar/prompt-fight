@@ -38,7 +38,8 @@ export default function GameBoard() {
   const activeSide = state?.active ?? "p1";
   const activePlayer = state ? state[activeSide] : null;
   const activeStunned =
-    activePlayer?.effects.some((e) => e.kind === "control" && e.turns_remaining > 0) ?? false;
+    activePlayer?.stickman.effects.some((e) => e.kind === "control" && e.turns_remaining > 0) ??
+    false;
 
   async function startMatch(p1Name: string, p2Name: string, sb: boolean) {
     setBusy(true);

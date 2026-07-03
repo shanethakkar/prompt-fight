@@ -37,11 +37,12 @@ from app.models import (
     Element,
     GameState,
     Outcome,
-    PlayerState,
     ResolutionEvent,
     ResolveResult,
     Side,
+    SideState,
     Template,
+    Unit,
 )
 from app.rules import (
     bundle_cost,
@@ -60,16 +61,20 @@ def initial_game(
     p1_name: str = "Player 1",
     p2_name: str = "Player 2",
 ) -> GameState:
-    def _player(name: str) -> PlayerState:
-        return PlayerState(name=name, hp=balance.hp_start, mana=balance.mana_start)
+    def _side(key: str, name: str) -> SideState:
+        return SideState(
+            name=name,
+            mana=balance.mana_start,
+            stickman=Unit(id=f"{key}s", name=name, hp=balance.hp_start, max_hp=balance.hp_max),
+        )
 
-    return GameState(round=1, active="p1", p1=_player(p1_name), p2=_player(p2_name))
+    return GameState(round=1, active="p1", p1=_side("p1", p1_name), p2=_side("p2", p2_name))
 
 
-def _display(players: dict[str, PlayerState], balance: BalanceConfig) -> dict[str, int]:
+def _display(players: dict[str, SideState], balance: BalanceConfig) -> dict[str, int]:
     return {
-        "p1_hp": max(0, min(balance.hp_max, players["p1"].hp)),
-        "p2_hp": max(0, min(balance.hp_max, players["p2"].hp)),
+        "p1_hp": max(0, min(balance.hp_max, players["p1"].stickman.hp)),
+        "p2_hp": max(0, min(balance.hp_max, players["p2"].stickman.hp)),
         "p1_mana": players["p1"].mana,
         "p2_mana": players["p2"].mana,
     }
@@ -83,15 +88,15 @@ def _higher_hp(p1_hp: int, p2_hp: int) -> Side | Literal["draw"]:
     return "draw"
 
 
-def _stance(player: PlayerState) -> ActiveEffect | None:
+def _stance(player: Unit) -> ActiveEffect | None:
     return next((e for e in player.effects if e.kind is EffectKind.defense), None)
 
 
-def _is_stunned(player: PlayerState) -> bool:
+def _is_stunned(player: Unit) -> bool:
     return any(e.kind is EffectKind.control and e.turns_remaining > 0 for e in player.effects)
 
 
-def _absorb_through_barriers(target: PlayerState, amount: int) -> tuple[int, int, int, list[str]]:
+def _absorb_through_barriers(target: Unit, amount: int) -> tuple[int, int, int, list[str]]:
     """Soak ``amount`` through the target's durability pools (closest to HP).
 
     Barriers deplete in list order; a big hit cascades through several. Returns
@@ -118,8 +123,8 @@ def _absorb_through_barriers(target: PlayerState, amount: int) -> tuple[int, int
 def _apply_damage(
     a_side: Side,
     o_side: Side,
-    active: PlayerState,
-    opponent: PlayerState,
+    active: Unit,
+    opponent: Unit,
     element: Element,
     atk_power: int,
     atk_speed: int,
@@ -183,8 +188,13 @@ def resolve_turn(state: GameState, action: Action | None, balance: BalanceConfig
     ns = state.model_copy(deep=True)  # input immutability
     a_side = ns.active
     o_side = _OPPONENT[a_side]
-    active = ns.p1 if a_side == "p1" else ns.p2
-    opponent = ns.p1 if o_side == "p1" else ns.p2
+    active_side = ns.p1 if a_side == "p1" else ns.p2
+    opp_side = ns.p1 if o_side == "p1" else ns.p2
+    # In P3.0 each side is a single stickman; targeting through entities lands in
+    # P3.1. Binding the unit vars to the stickmen keeps the combat logic untouched;
+    # only mana/cooldowns move to the SIDE (one command per turn).
+    active = active_side.stickman
+    opponent = opp_side.stickman
     players = {"p1": ns.p1, "p2": ns.p2}
 
     if active.hp <= 0 or opponent.hp <= 0:
@@ -248,7 +258,7 @@ def resolve_turn(state: GameState, action: Action | None, balance: BalanceConfig
     flavor = action.flavor_text if action is not None else ""
 
     # --- ACT: pay the aggregate cost, then apply each component in order.
-    active.mana = max(0, active.mana - bundle_cost(components, balance))
+    active_side.mana = max(0, active_side.mana - bundle_cost(components, balance))
     atk_speed = effective_speed(action.speed if action is not None else 5, active.effects)
     staged: list[ActiveEffect] = []  # self-targeted effects installed post-decrement
     staged_barriers: list[Barrier] = []
@@ -433,10 +443,10 @@ def resolve_turn(state: GameState, action: Action | None, balance: BalanceConfig
     if staged_barriers:  # barriers have no timer; kept until broken, newest capped
         active.barriers.extend(staged_barriers)
         active.barriers = active.barriers[-balance.max_barriers_per_player :]
-    active.cooldowns = {k: t - 1 for k, t in active.cooldowns.items() if t - 1 > 0}
+    active_side.cooldowns = {k: t - 1 for k, t in active_side.cooldowns.items() if t - 1 > 0}
     for k, cd in kind_cooldowns(components, balance).items():
-        active.cooldowns[k] = cd
-    active.mana = min(balance.mana_max, active.mana + balance.mana_regen_per_turn)
+        active_side.cooldowns[k] = cd
+    active_side.mana = min(balance.mana_max, active_side.mana + balance.mana_regen_per_turn)
 
     # --- Match-over check + advance the turn.
     match_over = False
@@ -451,7 +461,7 @@ def resolve_turn(state: GameState, action: Action | None, balance: BalanceConfig
         ns.active = "p1"
         ns.round = state.round + 1
         if ns.round > balance.max_turns:
-            match_over, winner = True, _higher_hp(ns.p1.hp, ns.p2.hp)
+            match_over, winner = True, _higher_hp(ns.p1.stickman.hp, ns.p2.stickman.hp)
 
     if not events:  # an empty bundle still passes a turn; give playback one beat
         events.append(
@@ -468,7 +478,7 @@ def resolve_turn(state: GameState, action: Action | None, balance: BalanceConfig
     return ResolveResult(events=events, state=ns, match_over=match_over, winner=winner)
 
 
-def _decrement_effects(player: PlayerState) -> None:
+def _decrement_effects(player: Unit) -> None:
     """Tick down every effect on the player; drop the expired (use-before-decrement)."""
     kept: list[ActiveEffect] = []
     for e in player.effects:
@@ -478,9 +488,7 @@ def _decrement_effects(player: PlayerState) -> None:
     player.effects = kept
 
 
-def _install_staged(
-    player: PlayerState, staged: list[ActiveEffect], balance: BalanceConfig
-) -> None:
+def _install_staged(player: Unit, staged: list[ActiveEffect], balance: BalanceConfig) -> None:
     """Install this turn's self-targeted effects (a new stance replaces the old),
     then cap the list at max_effects_per_player, keeping the newest."""
     for e in staged:

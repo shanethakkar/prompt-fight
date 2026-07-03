@@ -15,8 +15,8 @@ import type {
   ActiveEffect,
   JudgeResponse,
   LedgerEntry,
-  PlayerState,
   ResolutionEvent,
+  Unit,
 } from "@/lib/types";
 
 const NAMES = { p1: "Ada", p2: "Bo" } as const;
@@ -209,12 +209,13 @@ describe("narrateResult", () => {
 });
 
 describe("statusChips", () => {
-  function ps(over: Partial<PlayerState>): PlayerState {
+  function ps(over: Partial<Unit>): Unit {
     return {
+      id: "u",
       name: "P",
+      kind: "stickman",
       hp: 100,
-      mana: 10,
-      cooldowns: {},
+      max_hp: 100,
       effects: [],
       barriers: [],
       stun_immunity: 0,
@@ -225,9 +226,10 @@ describe("statusChips", () => {
     const chips = statusChips(ps({ effects: [eff({ stat: "power", magnitude: 5, turns_remaining: 2, label: "empowered" })] }));
     expect(chips[0]).toEqual({ text: "Empowered +5 power · 2t", tone: "buff" });
   });
-  it("labels a weaken and a cooldown", () => {
+  it("labels a weaken and a side cooldown", () => {
     const chips = statusChips(
-      ps({ effects: [eff({ stat: "power", magnitude: -4, turns_remaining: 1, label: "weakened" })], cooldowns: { heal: 2 } }),
+      ps({ effects: [eff({ stat: "power", magnitude: -4, turns_remaining: 1, label: "weakened" })] }),
+      { heal: 2 },
     );
     expect(chips.map((c) => c.text)).toContain("Weakened -4 power · 1t");
     expect(chips.map((c) => c.text)).toContain("Heal ready in 2");

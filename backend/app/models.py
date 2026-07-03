@@ -243,28 +243,51 @@ class Barrier(BaseModel):
     label: str = "barrier"
 
 
-class PlayerState(BaseModel):
+UnitKind = Literal["stickman", "entity"]
+
+
+class Unit(BaseModel):
+    """One combatant on the battlefield. Each side has a ``stickman`` (its core —
+    if it dies, that side loses) plus zero or more summoned ``entities``. All
+    per-unit combat state (hp/effects/barriers) lives here; mana and cooldowns
+    are per-SIDE (one command per turn). ``id`` is a stable server-minted handle
+    used for targeting (P3.1a+); ``kind`` distinguishes the core from helpers.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
-    name: str = "Player"
+    id: str
+    name: str = "Stickman"
+    kind: UnitKind = "stickman"
     hp: int
-    mana: int
-    # Only component-kinds currently on cooldown appear; missing => available.
-    # Keyed by the cooldownable kinds only ("heal", "defense", "control").
-    cooldowns: dict[str, int] = Field(default_factory=dict)
+    max_hp: int
     effects: list[ActiveEffect] = Field(default_factory=list)
     barriers: list[Barrier] = Field(default_factory=list)
     # Turns of immunity to incoming stun after one wears off (anti stun-lock).
     stun_immunity: int = 0
 
 
+class SideState(BaseModel):
+    """One player's side of the board: their resource pool + their unit roster."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = "Player"
+    mana: int
+    # Only component-kinds currently on cooldown appear; missing => available.
+    # Keyed by the cooldownable kinds only ("heal", "defense", "control").
+    cooldowns: dict[str, int] = Field(default_factory=dict)
+    stickman: Unit
+    entities: list[Unit] = Field(default_factory=list)
+
+
 class GameState(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     round: int = 1
-    active: Side = "p1"  # whose turn it is
-    p1: PlayerState
-    p2: PlayerState
+    active: Side = "p1"  # whose side's turn it is
+    p1: SideState
+    p2: SideState
 
 
 class EffectSummary(BaseModel):

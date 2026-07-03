@@ -103,21 +103,32 @@ export interface Barrier {
   label: string;
 }
 
-export interface PlayerState {
+export type UnitKind = "stickman" | "entity";
+
+export interface Unit {
+  id: string;
   name: string;
+  kind: UnitKind;
   hp: number;
-  mana: number;
-  cooldowns: Record<string, number>;
+  max_hp: number;
   effects: ActiveEffect[];
   barriers: Barrier[];
   stun_immunity: number;
 }
 
+export interface SideState {
+  name: string;
+  mana: number;
+  cooldowns: Record<string, number>;
+  stickman: Unit;
+  entities: Unit[];
+}
+
 export interface GameState {
   round: number;
   active: Side;
-  p1: PlayerState;
-  p2: PlayerState;
+  p1: SideState;
+  p2: SideState;
 }
 
 export interface StateDelta {

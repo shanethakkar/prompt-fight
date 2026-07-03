@@ -8,10 +8,10 @@ import type {
   Element,
   JudgeResponse,
   LedgerEntry,
-  PlayerState,
   ResolutionEvent,
   Side,
   StatKind,
+  Unit,
 } from "./types";
 
 export type Phase =
@@ -238,10 +238,10 @@ function statChip(e: ActiveEffect): Chip {
   return { text: `${capitalize(label)} ${signed(e.magnitude)} ${statName(e.stat ?? "power")} · ${t}t`, tone: good ? "buff" : "debuff" };
 }
 
-/** Readable status chips for a player (what each effect actually does). */
-export function statusChips(p: PlayerState): Chip[] {
+/** Readable status chips for a unit (effects + barriers) plus the side's cooldowns. */
+export function statusChips(unit: Unit, cooldowns: Record<string, number> = {}): Chip[] {
   const chips: Chip[] = [];
-  for (const e of p.effects) {
+  for (const e of unit.effects) {
     switch (e.kind) {
       case "dot":
         chips.push({ text: `${capitalize(e.label || "poison")} ${e.per_turn}/t · ${e.turns_remaining}t`, tone: "debuff" });
@@ -263,10 +263,10 @@ export function statusChips(p: PlayerState): Chip[] {
         break;
     }
   }
-  for (const bar of p.barriers) {
+  for (const bar of unit.barriers) {
     chips.push({ text: `Barrier ${bar.pool}`, tone: "defense" });
   }
-  for (const [kind, turns] of Object.entries(p.cooldowns)) {
+  for (const [kind, turns] of Object.entries(cooldowns)) {
     if (turns && turns > 0) {
       chips.push({ text: `${capitalize(kind)} ready in ${turns}`, tone: "cooldown" });
     }

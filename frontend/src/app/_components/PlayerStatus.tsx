@@ -1,4 +1,4 @@
-import type { MatchConfig, PlayerState } from "@/lib/types";
+import type { MatchConfig, SideState } from "@/lib/types";
 import { pct, statusChips, type ChipTone } from "@/lib/game";
 
 const CHIP_CLASS: Record<ChipTone, string> = {
@@ -42,11 +42,11 @@ export function PlayerStatus({
   config,
   active,
 }: {
-  player: PlayerState;
+  player: SideState;
   config: MatchConfig;
   active?: boolean;
 }) {
-  const chips = statusChips(player);
+  const chips = statusChips(player.stickman, player.cooldowns);
   return (
     <div
       className={`flex flex-col gap-2 rounded-xl border p-3 ${
@@ -54,7 +54,7 @@ export function PlayerStatus({
       }`}
     >
       <div className="font-semibold">{player.name}</div>
-      <Bar label="HP" value={player.hp} max={config.hp_max} color="bg-emerald-500" />
+      <Bar label="HP" value={player.stickman.hp} max={config.hp_max} color="bg-emerald-500" />
       <Bar label="Mana" value={player.mana} max={config.mana_max} color="bg-sky-500" />
       {chips.length > 0 && (
         <div className="flex flex-wrap gap-1 text-[10px]">

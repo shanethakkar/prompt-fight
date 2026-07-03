@@ -11,13 +11,18 @@ from app.models import (
     DefenseSubtype,
     EffectComponent,
     GameState,
-    PlayerState,
+    SideState,
     Template,
+    Unit,
 )
 from app.resolver import initial_game
 from fastapi.testclient import TestClient
 
 client = TestClient(app)
+
+
+def _side(name: str, hp: int, mana: int = 12) -> SideState:
+    return SideState(name=name, mana=mana, stickman=Unit(id="s", name=name, hp=hp, max_hp=100))
 
 
 def _fireball() -> Action:
@@ -129,8 +134,8 @@ def test_new_match():
     assert body["match_id"]
     assert body["state"]["round"] == 1 and body["state"]["active"] == "p1"
     assert body["state"]["p1"]["name"] == "Ada"
-    assert body["state"]["p1"]["hp"] == 100 and body["state"]["p1"]["mana"] == 12
-    assert body["state"]["p1"]["effects"] == []
+    assert body["state"]["p1"]["stickman"]["hp"] == 100 and body["state"]["p1"]["mana"] == 12
+    assert body["state"]["p1"]["stickman"]["effects"] == []
     cfg = body["config"]
     assert cfg["hp_max"] == 100 and cfg["mana_max"] == 22
     assert cfg["rewrites_per_turn"] == 2 and cfg["max_turns"] == 30
@@ -167,7 +172,7 @@ def test_resolve_endpoint():
     )
     assert r.status_code == 200
     body = r.json()
-    assert body["state"]["p2"]["hp"] == 82  # 6*3
+    assert body["state"]["p2"]["stickman"]["hp"] == 82  # 6*3
     assert body["state"]["active"] == "p2"
     assert body["match_over"] is False
     assert body["events"][0]["actor"] == "p1"
@@ -175,8 +180,8 @@ def test_resolve_endpoint():
 
 def test_resolve_over_match_rejected():
     dead = GameState(
-        p1=PlayerState(name="P1", hp=100, mana=10),
-        p2=PlayerState(name="P2", hp=0, mana=10),
+        p1=_side("P1", 100, 10),
+        p2=_side("P2", 0, 10),
     )
     r = client.post(
         "/api/resolve",
@@ -191,8 +196,8 @@ def test_resolve_over_match_rejected():
 
 def test_resolve_match_over():
     low = GameState(
-        p1=PlayerState(name="P1", hp=100, mana=10),
-        p2=PlayerState(name="P2", hp=15, mana=10),
+        p1=_side("P1", 100, 10),
+        p2=_side("P2", 15, 10),
     )
     r = client.post(
         "/api/resolve",
@@ -217,13 +222,13 @@ def test_resolve_accepts_null_action():
 def test_resolve_ignores_action_while_stunned():
     st = initial_game_json()
     st["active"] = "p2"
-    st["p2"]["effects"] = [{"kind": "control", "turns_remaining": 1, "source": "p1"}]
+    st["p2"]["stickman"]["effects"] = [{"kind": "control", "turns_remaining": 1, "source": "p1"}]
     r = client.post(
         "/api/resolve",
         json={"match_id": "m1", "state": st, "action": _fireball().model_dump(mode="json")},
     )
     body = r.json()
-    assert body["state"]["p1"]["hp"] == 100  # the submitted fireball was ignored
+    assert body["state"]["p1"]["stickman"]["hp"] == 100  # the submitted fireball was ignored
     assert any(e["kind"] == "stun_skip" for e in body["events"])
 
 
@@ -242,12 +247,12 @@ def test_resolve_bundle_multi_event():
         flavor_text="Guard up, wounds knit.",
     )
     st = initial_game_json()
-    st["p1"]["hp"] = 80
+    st["p1"]["stickman"]["hp"] = 80
     r = client.post(
         "/api/resolve",
         json={"match_id": "m1", "state": st, "action": bundle.model_dump(mode="json")},
     )
     body = r.json()
     assert [e["kind"] for e in body["events"]] == ["heal", "defense"]
-    assert body["state"]["p1"]["hp"] == 90
-    assert any(e["kind"] == "defense" for e in body["state"]["p1"]["effects"])
+    assert body["state"]["p1"]["stickman"]["hp"] == 90
+    assert any(e["kind"] == "defense" for e in body["state"]["p1"]["stickman"]["effects"])

@@ -7,6 +7,7 @@
 ## 1. Match structure
 
 - Two players, local hot-seat (one device, pass-and-play). **Open info** — no hidden inputs.
+- **State is unit-based (P3.0):** each side is a `SideState{name, mana, cooldowns, stickman, entities}`. Every side has a **stickman** (its core) plus zero or more summoned **entities** (the summon/command layer lands in P3.1). All combat state (hp, effects, barriers) is **per-unit**; mana and cooldowns are **per-side** (one command per turn). **A side loses when its stickman's hp reaches 0** — entities are expendable helpers, not extra health bars.
 - **Alternating single-action turns (Worms-style):** P1 acts, the result plays out, then P2 acts, then P1… (P1 starts; seeded starter-randomization is a P1 follow-up). Each turn the active player submits exactly **one** action (a bundle of up to 3 components), resolved immediately against the current state.
 - Match ends the instant a player's HP reaches 0. **HP floors at 0** (no signed accounting). A player can now be KO'd **at the start of their own turn** by a damage-over-time effect before they act — the win goes to the effect's source (§7).
 - **Round cap:** `max_turns` (default 30) counts **rounds** (one turn each). It is checked only at a **round boundary** (after P2 acts) so both players have taken equal actions; then higher HP wins, equal → draw.
