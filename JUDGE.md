@@ -16,9 +16,10 @@ The judge is the game's only AI component: an LLM that converts a freeform playe
 1. Output exactly one `JudgedAction` conforming to the schema. No prose outside the JSON.
 2. Classify into exactly one category/subtype from the closed sets. Never invent categories, elements, or fields.
 3. Score `power` and `speed` strictly from the rubric in §6, based on the prompt's *claimed scope*, not its wording flair.
-4. Fill `visual` with 1–4 shape primitives approximating what the player described (§5).
-5. Write `flavor_text`: one short, punchy third-person narration line (max 90 chars) for playback.
-6. If the prompt is incoherent or not an action, return category `attack`, subtype `melee`, power 1, speed 5, physical — a harmless flail — with fitting flavor text.
+4. For **buff/debuff only**, set `stat` to the stat the effect shifts: `speed` when the prompt is about hastening/slowing/quickness, otherwise `power` (the default). Leave `stat` null for every other category.
+5. Fill `visual` with 1–4 shape primitives approximating what the player described (§5).
+6. Write `flavor_text`: one short, punchy third-person narration line (max 90 chars) for playback.
+7. If the prompt is incoherent or not an action, return category `attack`, subtype `melee`, power 1, speed 5, physical — a harmless flail — with fitting flavor text.
 
 ## 3. Single-effect extraction (anti-stacking)
 
@@ -39,6 +40,7 @@ Defined once here; mirrored as a Pydantic model (backend) and TypeScript type (f
   "element": "physical | fire | water | nature | lightning",
   "power": 1-10,
   "speed": 1-10,
+  "stat": "power | speed | null",
   "template": "projectile | beam | melee | aoe_burst | shield_raise | dodge | reflect | buff_aura | debuff_cloud | heal_glow",
   "visual": {
     "primitives": [
@@ -52,7 +54,7 @@ Defined once here; mirrored as a Pydantic model (backend) and TypeScript type (f
 }
 ```
 
-Notes: `subtype` must belong to `category`. `template` follows deterministically from `subtype` (server validates and corrects). `mana_cost` is **not** in the schema — the server computes it from `power` + `category` per `balance.json`.
+Notes: `subtype` must belong to `category`. `template` follows deterministically from `subtype` (server validates and corrects). `stat` applies **only to buff/debuff** — set it to `power` or `speed` for the stat the effect shifts (default `power` if unclear); it is `null` for all other categories. `mana_cost` is **not** in the schema — the server computes it from `power` + `category` per `balance.json`.
 
 ## 5. Visual primitives guidance
 
@@ -90,6 +92,7 @@ Big scope naturally implies low speed; the judge should reflect that unless the 
 - ≥ 3 absurd-scope prompts (must land power 9–10, not error)
 - ≥ 2 incoherent prompts (must produce the harmless-flail fallback)
 - ≥ 3 near-duplicate pairs (must judge into identical category and power)
+- ≥ 2 buff/debuff prompts asserting `stat` — at least one `power` and one `speed`
 - Grow the file whenever playtesting reveals an exploit or misjudgment (M6 balance pass).
 
 ## 8. Few-shot examples (included in judge system prompt)
@@ -117,6 +120,16 @@ Big scope naturally implies low speed; the judge should reflect that unless the 
 **"I chug a healing potion"**
 ```json
 {"category":"heal","subtype":"heal","element":"nature","power":4,"speed":7,"template":"heal_glow","visual":{"primitives":[{"shape":"star","size":"small","color":"#35C759","offset":[0,-20]},{"shape":"ring","size":"medium","color":"#8CE99A","offset":[0,0]}]},"flavor_text":"A quick swig — wounds knit closed in a green glow."}
+```
+
+**"I channel raw power into my fists"** (buff, power)
+```json
+{"category":"buff","subtype":"buff","element":"physical","power":5,"speed":4,"stat":"power","template":"buff_aura","visual":{"primitives":[{"shape":"ring","size":"medium","color":"#FF4D4D","offset":[0,0]}]},"flavor_text":"Red energy crackles around clenched fists."}
+```
+
+**"I hurl mud in their eyes to slow them down"** (debuff, speed)
+```json
+{"category":"debuff","subtype":"debuff","element":"nature","power":4,"speed":6,"stat":"speed","template":"debuff_cloud","visual":{"primitives":[{"shape":"circle","size":"medium","color":"#8B5A2B","offset":[0,0]}]},"flavor_text":"A splatter of mud fouls the enemy's footing."}
 ```
 
 **"asdfjkl banana"**
