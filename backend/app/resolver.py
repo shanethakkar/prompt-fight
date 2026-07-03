@@ -20,6 +20,7 @@ emit several playback beats.
 
 from __future__ import annotations
 
+import random
 from typing import Literal
 
 from app.config import BalanceConfig
@@ -36,6 +37,7 @@ from app.models import (
     EffectKind,
     EffectSummary,
     Element,
+    GameMode,
     GameState,
     Outcome,
     ResolutionEvent,
@@ -63,6 +65,8 @@ def initial_game(
     balance: BalanceConfig,
     p1_name: str = "Player 1",
     p2_name: str = "Player 2",
+    seed: int = 0,
+    mode: GameMode = "sandbox",
 ) -> GameState:
     def _side(key: str, name: str) -> SideState:
         return SideState(
@@ -71,7 +75,16 @@ def initial_game(
             stickman=Unit(id=f"{key}s", name=name, hp=balance.hp_start, max_hp=balance.hp_max),
         )
 
-    return GameState(round=1, active="p1", p1=_side("p1", p1_name), p2=_side("p2", p2_name))
+    # Seeded coin-flip for who moves first (DESIGN §5): fair + replayable.
+    active: Side = "p1" if random.Random(seed).random() < 0.5 else "p2"
+    return GameState(
+        round=1,
+        active=active,
+        seed=seed,
+        mode=mode,
+        p1=_side("p1", p1_name),
+        p2=_side("p2", p2_name),
+    )
 
 
 def _display(players: dict[str, SideState], balance: BalanceConfig) -> dict[str, int]:

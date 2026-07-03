@@ -140,19 +140,26 @@ def test_new_match():
     assert r.status_code == 200
     body = r.json()
     assert body["match_id"]
-    assert body["state"]["round"] == 1 and body["state"]["active"] == "p1"
+    assert body["state"]["round"] == 1 and body["state"]["active"] in ("p1", "p2")
     assert body["state"]["p1"]["name"] == "Ada"
     assert body["state"]["p1"]["stickman"]["hp"] == 100 and body["state"]["p1"]["mana"] == 14
     assert body["state"]["p1"]["stickman"]["effects"] == []
+    assert body["state"]["mode"] == "sandbox" and isinstance(body["state"]["seed"], int)
     cfg = body["config"]
     assert cfg["hp_max"] == 100 and cfg["mana_max"] == 24
     assert cfg["rewrites_per_turn"] == 2 and cfg["max_turns"] == 30
+    assert cfg["mode"] == "sandbox"
 
 
 def test_new_match_defaults():
     body = client.post("/api/new_match", json={}).json()
     assert body["state"]["p1"]["name"] == "Player 1"
     assert body["state"]["p2"]["name"] == "Player 2"
+
+
+def test_new_match_competitive_mode():
+    body = client.post("/api/new_match", json={"mode": "competitive"}).json()
+    assert body["state"]["mode"] == "competitive" and body["config"]["mode"] == "competitive"
 
 
 def test_cors_headers_present():
@@ -166,7 +173,11 @@ def test_cors_headers_present():
 def initial_game_json() -> dict:
     from app.config import load_balance
 
-    return initial_game(load_balance()).model_dump(mode="json")
+    # Canonical p1-first starting state for the deterministic resolve-pipeline
+    # tests below; the live seeded coin-flip is covered in test_resolver.
+    st = initial_game(load_balance()).model_dump(mode="json")
+    st["active"] = "p1"
+    return st
 
 
 def test_resolve_endpoint():

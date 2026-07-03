@@ -147,11 +147,15 @@ export interface SideState {
   entities: Unit[];
 }
 
+export type GameMode = "sandbox" | "competitive";
+
 export interface GameState {
   round: number;
   active: Side;
   p1: SideState;
   p2: SideState;
+  seed: number;
+  mode: GameMode;
 }
 
 export interface StateDelta {
@@ -205,6 +209,7 @@ export interface MatchConfig {
   mana_regen_per_turn: number;
   rewrites_per_turn: number;
   max_turns: number;
+  mode: GameMode;
 }
 
 // ---- API request/response shapes -------------------------------------------

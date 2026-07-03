@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict
 
-from app.models import Action, GameState
+from app.models import Action, GameMode, GameState
 
 
 class JudgeRequest(BaseModel):
@@ -59,6 +59,7 @@ class MatchConfig(BaseModel):
     mana_regen_per_turn: int
     rewrites_per_turn: int
     max_turns: int
+    mode: GameMode
 
 
 class NewMatchRequest(BaseModel):
@@ -66,6 +67,7 @@ class NewMatchRequest(BaseModel):
 
     p1_name: str = "Player 1"
     p2_name: str = "Player 2"
+    mode: GameMode = "sandbox"
 
 
 class NewMatchResponse(BaseModel):

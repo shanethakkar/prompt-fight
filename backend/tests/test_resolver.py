@@ -657,9 +657,17 @@ def test_deterministic():
 
 def test_initial_game():
     g = initial_game(BAL, "A", "B")
-    assert g.round == 1 and g.active == "p1"
+    assert g.round == 1 and g.active in ("p1", "p2")
     assert g.p1.stickman.hp == 100 and g.p1.mana == 14 and g.p1.name == "A"
     assert g.p1.stickman.effects == [] and g.p1.cooldowns == {}
+    assert g.mode == "sandbox" and g.seed == 0
+
+
+def test_initial_game_seeded_coinflip():
+    # Same seed -> same first player (replayable); across seeds both sides appear.
+    assert initial_game(BAL, seed=7).active == initial_game(BAL, seed=7).active
+    sides = {initial_game(BAL, seed=s).active for s in range(12)}
+    assert sides == {"p1", "p2"}
 
 
 # ---------------------------------------------------------------------------

@@ -265,6 +265,9 @@ class Action(BaseModel):
 # ---------------------------------------------------------------------------
 
 Side = Literal["p1", "p2"]
+# P1: match modes. "sandbox" = no mana/cooldown gate + reliability disabled
+# (everything lands); "competitive" = gates + the reliability roll are live.
+GameMode = Literal["sandbox", "competitive"]
 
 
 class ActiveEffect(BaseModel):
@@ -372,6 +375,11 @@ class GameState(BaseModel):
     active: Side = "p1"  # whose side's turn it is
     p1: SideState
     p2: SideState
+    # P1: the reliability RNG is seeded from match state so the resolver stays a
+    # pure function and replays reproduce. `mode` gates whether reliability +
+    # affordability apply. Both default so pre-P1 constructors stay valid.
+    seed: int = 0
+    mode: GameMode = "sandbox"
 
 
 class EffectSummary(BaseModel):

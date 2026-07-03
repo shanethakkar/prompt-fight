@@ -46,7 +46,7 @@ export default function GameBoard() {
     setInputError(null);
     setSandbox(sb);
     try {
-      const r = await api.newMatch(p1Name, p2Name);
+      const r = await api.newMatch(p1Name, p2Name, sb ? "sandbox" : "competitive");
       setMatchId(r.match_id);
       setState(r.state);
       setConfig(r.config);

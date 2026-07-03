@@ -7,6 +7,7 @@ the pure M1 resolver). The API key lives only in backend env.
 
 from __future__ import annotations
 
+import secrets
 import uuid
 
 from fastapi import FastAPI, HTTPException
@@ -49,15 +50,19 @@ def health() -> dict[str, str]:
 def api_new_match(req: NewMatchRequest) -> NewMatchResponse:
     """Start a match: initial state + the display constants the client needs."""
     balance = load_balance()
+    # Mint the reliability seed here, at the I/O boundary — the resolver itself
+    # stays pure and reads the seed back off the state.
+    seed = secrets.randbits(63)
     return NewMatchResponse(
         match_id=uuid.uuid4().hex,
-        state=initial_game(balance, req.p1_name, req.p2_name),
+        state=initial_game(balance, req.p1_name, req.p2_name, seed=seed, mode=req.mode),
         config=MatchConfig(
             hp_max=balance.hp_max,
             mana_max=balance.mana_max,
             mana_regen_per_turn=balance.mana_regen_per_turn,
             rewrites_per_turn=balance.rewrites_per_turn,
             max_turns=balance.max_turns,
+            mode=req.mode,
         ),
     )
 

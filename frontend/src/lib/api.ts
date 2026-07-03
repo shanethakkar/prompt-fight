@@ -3,6 +3,7 @@
 // combat math itself.
 
 import type {
+  GameMode,
   JudgeRequest,
   JudgeResponse,
   NewMatchResponse,
@@ -24,8 +25,12 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export function newMatch(p1_name: string, p2_name: string): Promise<NewMatchResponse> {
-  return post<NewMatchResponse>("/api/new_match", { p1_name, p2_name });
+export function newMatch(
+  p1_name: string,
+  p2_name: string,
+  mode: GameMode,
+): Promise<NewMatchResponse> {
+  return post<NewMatchResponse>("/api/new_match", { p1_name, p2_name, mode });
 }
 
 export function judge(req: JudgeRequest): Promise<JudgeResponse> {

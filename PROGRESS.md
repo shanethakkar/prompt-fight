@@ -12,6 +12,8 @@
 
 ## DECISIONS (running log of nontrivial choices made during implementation)
 
+- 2026-07-03 — **Reliability RNG seed lives in `GameState`, minted at the API boundary.** Keeps `resolve_turn` a pure function (replayable/testable): the seed rides in state (set once at `/api/new_match` via `secrets`), and per-roll RNG (P1.1) derives from `(seed, round, active, action_fingerprint)` — same state+action reproduces, fishing-proof + rewrite-cap-bounded. Local hot-seat has no adversarial client; a server-authoritative seed store is deferred to online.
+
 - 2026-07-03 — **P3 entity layer — command mode + bounded-tier effectiveness (user forks).** Building the entity/minion layer (the last piece of the original vision). The user chose **command mode** (no autonomous minion AI — the human commands their units; one command can coordinate several owned units in a priced "combo" like "Harry and Hermione blast the dragon") over auto-fight, for full control; and **bounded-tier** effectiveness (judge picks resisted/neutral/strong/devastating, server owns the multiplier) for the kryptonite-vs-Superman idea. A design-agent review pinned: state → units (`SideState{stickman, entities}`, win = stickman death, decided once at end-of-command with existing precedence); reflect/self-damage returns to the specific source unit; per-target stance consumption; `ActiveEffect.source` stays a Side (an entity dying mustn't cancel dots it applied); stateful judge with **server-minted ids** the judge echoes (never invents) + `normalize` validates every id against the real roster; two-tier stun (stickman → side skips, entity → only its components fizzle); tags grounded as server state from the first summon so P3.3's anti-exploit guardrail is buildable; entities are sandbox-first until a mana pass. Staged P3.0 (units reshape, behavior-identical) → P3.1a (id/roster substrate, still identical) → P3.1b (summon+kits+lifecycle) → P3.1c (combos economy: ≤1 damage **per source_id**, `max_units_per_command`, cap scaling). Deferred: P3.2 items, P3.3 effectiveness/crits, P3.4 charm. Plan in the approved plan file; supersedes DESIGN §7 P3.
 
 
@@ -36,6 +38,12 @@
 - (Renderer choice SVG vs. Canvas: record here when made in M4.)
 
 ---
+
+## 2026-07-03 — P1.0: reliability substrate (seed + game modes)
+- Done: First stage of P1 (reliability + modes). Added `seed: int` and `mode: "sandbox"|"competitive"` to `GameState` (both defaulted so pre-P1 constructors stay valid); the seed is minted at `/api/new_match` via `secrets.randbits(63)` at the I/O boundary and read back by the pure resolver, and `initial_game` now picks the starting player by a **seeded coin-flip** (was hardcoded p1). `mode` threads through `NewMatchRequest`/`MatchConfig`; the client's existing sandbox toggle now sends `sandbox`/`competitive`. No reliability behavior yet — sandbox default keeps everything deterministic, so this stage is behavior-identical bar the coin-flip.
+- Files: backend/app/{models,resolver,schemas,main}.py; backend/tests/{test_resolver,test_api}.py; frontend/src/lib/{types,api}.ts, frontend/src/app/_components/GameBoard.tsx; GAME_MECHANICS.md (§1 turn model + changelog); PROGRESS.md.
+- Verified: `uv run pytest -m "not live"` **155 passed** (+2: seeded coin-flip determinism, competitive-mode passthrough) + ruff clean; frontend typecheck + lint + **35 tests** green. New `test_initial_game_seeded_coinflip` proves same-seed→same-starter and that both sides appear across seeds.
+- Follow-ups: P1.1 (reliability spectrum + seeded roll + evade + backfire + informed odds), then P1.2 (aptitude).
 
 ## 2026-07-03 — Enter-to-submit in the prompt box
 - Done: Plain **Enter** now submits the move (was Cmd/Ctrl+Enter); **Shift+Enter** inserts a new line. Added a muted "Enter to submit · Shift+Enter for a new line" hint by the Submit button. UI-only, no rule change.
