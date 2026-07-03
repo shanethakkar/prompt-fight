@@ -17,23 +17,29 @@ function MiniChips({ items, tone }: { items: string[]; tone: string }) {
   );
 }
 
-/** Structured items: a weapon shows its element+power; gear shows the tags it grants. */
+/** Structured items: a weapon shows element+power, armor shows its % reduction, gear its tags. */
 function ItemList({ items }: { items: Item[] }) {
   return (
     <div className="flex flex-col gap-0.5">
       {items.map((it, i) => {
         const isWeapon = it.kind === "weapon" && it.element;
+        const isArmor = it.kind === "armor" && it.armor;
+        const glyph = isWeapon ? elementIcon(it.element!) : "🛡";
         const detail = isWeapon
           ? `${capitalize(it.element!)} ${it.power ?? ""}`.trim()
-          : it.tags.length
-            ? `→ ${it.tags.map(capitalize).join(", ")}`
-            : "trinket";
+          : isArmor
+            ? `−${it.armor! * 10}% dmg`
+            : it.tags.length
+              ? `→ ${it.tags.map(capitalize).join(", ")}`
+              : "trinket";
         return (
           <div key={i} className="flex items-baseline gap-1.5">
             <span className={isWeapon ? elementColor(it.element!) : "text-amber-300"}>
-              {isWeapon ? elementIcon(it.element!) : "🛡"} {capitalize(it.name)}
+              {glyph} {capitalize(it.name)}
             </span>
-            <span className="text-[10px] text-zinc-500">{detail}</span>
+            <span className={`text-[10px] ${isArmor ? "text-sky-400" : "text-zinc-500"}`}>
+              {detail}
+            </span>
           </div>
         );
       })}

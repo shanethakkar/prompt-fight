@@ -29,10 +29,11 @@
     {"prompt": "I knock them out cold for a turn", "contains": ["control"], "checks": [{"type": "control", "target": "opponent"}]},
     {"prompt": "I mark them with a hex so every hit wounds them worse", "contains": ["stat"], "checks": [{"type": "stat", "stat": "damage_taken", "target": "opponent", "magnitude": [2, 8]}]},
 
-    {"prompt": "I put on a full suit of enchanted plate armor", "contains": ["barrier"], "checks": [{"type": "barrier", "target": "self", "power": [4, 8]}]},
+    {"prompt": "I put on a full suit of enchanted plate armor", "contains": ["item"], "checks": [{"type": "item", "target": "self", "armor": [4, 8]}]},
     {"prompt": "I conjure a shimmering force field around myself", "contains": ["barrier"], "checks": [{"type": "barrier", "target": "self"}]},
-    {"prompt": "I equip a full suit of diamond armor", "contains": ["barrier"]},
-    {"prompt": "I strap heavy iron plate armor onto myself", "contains": ["barrier"]},
+    {"prompt": "I equip a full suit of diamond armor", "contains": ["item"], "checks": [{"type": "item", "armor": [5, 8]}]},
+    {"prompt": "I strap heavy iron plate armor onto myself", "contains": ["item"], "checks": [{"type": "item", "armor": [3, 6]}]},
+    {"prompt": "I pull on a worn leather jerkin", "contains": ["item"], "checks": [{"type": "item", "armor": [1, 3]}]},
 
     {"prompt": "I raise a sturdy shield to block the blow", "contains": ["defense"], "checks": [{"type": "defense", "target": "self"}]},
     {"prompt": "I nimbly dodge to the side", "contains": ["defense"], "checks": [{"type": "defense", "target": "self"}]},
@@ -40,7 +41,7 @@
 
     {"prompt": "I heal myself to full and raise a shield at the same time", "min_components": 2, "contains": ["heal", "defense"]},
     {"prompt": "I swing my flaming sword while buffing my own speed", "min_components": 2, "contains": ["damage", "stat"]},
-    {"prompt": "I put on plate armor and draw my sword", "min_components": 2, "contains": ["barrier", "damage"]},
+    {"prompt": "I put on plate armor and draw my sword", "min_components": 2, "contains": ["item", "damage"], "checks": [{"type": "item", "armor": [3, 8]}]},
     {"prompt": "I throw a fireball and poison the ground where they stand", "min_components": 2, "contains": ["damage", "dot"]},
     {"prompt": "I zap them with lightning and stun them for a moment", "min_components": 2, "contains": ["damage", "control"]},
 

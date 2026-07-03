@@ -175,7 +175,7 @@ def _apply_damage(
     (target, damage, outcome, summary).
     """
     raw = atk_power * balance.attack_damage_multiplier * reliability_mult
-    dt_mult = damage_taken_mult(opponent.effects, balance)  # opponent's armor, always applies
+    dt_mult = damage_taken_mult(opponent, balance)  # opponent's armor (effects + worn), always
     stance = _stance(opponent) if stance_available else None
 
     if stance is None:
@@ -624,12 +624,13 @@ def resolve_turn(state: GameState, action: Action | None, balance: BalanceConfig
             # unit's tags (+ weapon, if it's a weapon-item) which drive combat.
             # Applies immediately (gear, not a timed effect).
             name = c.name or "item"
-            kind = "weapon" if c.power else "gear"
+            kind = "weapon" if c.power else ("armor" if c.armor else "gear")
             new_item = Item(
                 name=name,
                 kind=kind,
                 element=c.element if c.power else None,
                 power=c.power,
+                armor=c.armor,
                 tags=list(c.tags or []),
             )
             if not any(i.name == name for i in target_unit.items):

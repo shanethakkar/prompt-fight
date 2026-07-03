@@ -68,13 +68,11 @@ COMPONENT TYPES (each component has a `type` and a `target`: "self" or "opponent
 Needs `subtype` (shield | dodge | reflect), `power`, `element`. A shield absorbs, a \
 dodge evades a slower hit, a reflect bounces a weaker hit back. Use for "raise my \
 shield", "dodge", "parry" — a one-time reaction.
-- barrier — a PERSISTENT durability pool (worn armor / ward / force field) that soaks \
-incoming hits across many turns until it shatters. This is how a unit gets real damage \
-PROTECTION — ALWAYS use it for armor. target self, or set `target_id` to armor one of \
-your OTHER units (a summoned ally). Needs `power` (the armor rating). Use for "put on \
-plate/diamond/iron armor", "give my orc a suit of armor", "armor up", "conjure a force \
-field", "wrap them in a lasting ward" — protective gear that actually reduces damage. \
-(An `item` only RECORDS gear + tags and does NOT reduce damage — armor is a `barrier`.)
+- barrier — a MAGICAL absorb pool (force field / ward / energy shield) that blocks hits \
+FULLY until its pool is spent, then shatters. target self, or `target_id` a unit you \
+own. Needs `power`. Use for "conjure a force field", "raise an energy shield", "wrap \
+them in a lasting ward" — a shield with its own HP that pops. NOT for worn armor (that \
+is an `item` with `armor` — it softens every hit instead of blocking then breaking).
 - control — a STUN: the opponent skips their turn(s). target opponent. Needs \
 `duration` (1-2). Use for "freeze them solid", "petrify them", "stun them", "stop \
 time", "knock them out cold", "trap them so they can't move" — total loss of a turn, \
@@ -89,14 +87,18 @@ dragon/giant/demon/god/titan ~70. A common animal or minion is NOT a tank — a 
 god ~8). Optional `tags` (e.g. ["undead"], ["flying"]) and `item` (a \
 weapon/armor it spawns holding). A summon takes your WHOLE turn — you CANNOT summon \
 and attack in the same command; the new unit acts on your NEXT turn.
-- item — equip ONE of YOUR units with a WEAPON or a special TRINKET. target self; set \
-`target_id` (default your stickman) and `name`. For a WEAPON add `element`+`power` — it \
-(re)arms that unit (a flaming sword makes its attacks fire). For gear whose POINT is a \
-MATCHUP tag add `tags` (e.g. ["kryptonite"] for kryptonite armor, ["silver"] silver \
-blade). Use for "give my orc a battle axe", "equip a kryptonite blade". \
-IMPORTANT: an `item` does NOT reduce damage. For PROTECTIVE armor use a `barrier` — and \
-for a NAMED suit of armor, emit the `barrier` (the protection) AND an `item` (so it \
-shows as worn gear): both `target_id` the same unit.
+- item — equip ONE of YOUR units with a WEAPON, worn ARMOR, or a TRINKET. target self; \
+set `target_id` (default your stickman) and `name`. \
+  • WEAPON: add `element`+`power` — it (re)arms that unit (a flaming sword makes its \
+attacks fire). \
+  • ARMOR (worn plate/mail/etc.): add `armor` = a persistent damage-reduction rating BY \
+MATERIAL — leather/cloth/hide/padded ~2, chainmail/iron/bronze ~4, steel/gold/plate ~5, \
+diamond/mithril ~6, netherite/adamantium/dragonscale/legendary ~7-8. It softens EVERY \
+hit (armor×10% less), for good. Stronger material = higher `armor` (and it costs more). \
+  • TRINKET whose point is a MATCHUP tag: add `tags` (["kryptonite"] kryptonite armor, \
+["silver"] silver blade). \
+Use for "give my orc a battle axe" (weapon), "equip a suit of diamond armor" (armor 6), \
+"forge kryptonite armor" (tag). A pure force-field/shield is a `barrier`, not an item.
 
 EFFECTIVENESS (matchups — the fun part). For a `damage` or `dot`, you MAY set \
 `effectiveness` = resisted | neutral | strong | devastating, plus `eff_tag` = the \
@@ -134,10 +136,11 @@ SLOWER (not losing HP), use `stat`. "Blind them" has no HP loss — approximate 
 `speed` debuff on the opponent. If they'd be UNABLE TO ACT entirely (frozen solid, \
 petrified, knocked out), that's `control`, not a slow.
 
-CHOOSING defense VS barrier VS stat: a one-turn reactive block/dodge/parry → \
-`defense`; durable worn armor / a lasting ward that keeps soaking hits → `barrier`; \
-"they take MORE damage" (a curse/mark that weakens a defender) → `stat damage_taken` \
-positive on the opponent.
+CHOOSING armor VS defense VS barrier VS stat: worn ARMOR (plate/diamond/leather) → an \
+`item` with `armor` (softens every hit, forever); a one-turn reactive block/dodge/parry \
+→ `defense`; a magical force-field/ward that fully blocks then pops → `barrier`; a brief \
+"brace / take less for a moment" → `stat damage_taken` negative on self; "they take MORE \
+damage" (a curse/mark) → `stat damage_taken` positive on the opponent.
 
 POWER / MAGNITUDE (from claimed scope)
 1-2  trivial: slap, pebble, a weak poison
@@ -162,7 +165,7 @@ dodge | reflect | buff_aura | debuff_cloud | heal_glow.
 BUNDLES (multiple effects in one prompt — this is encouraged now)
 "I heal to full AND raise a shield" -> [heal self p6] + [defense shield self p5]
 "I swing my flaming sword while buffing my speed" -> [damage fire p5] + [stat speed +3 self]
-"I put on plate armor and draw my sword" -> [stat damage_taken -4 self] + [damage p5]
+"I put on plate armor and draw my sword" -> [item name "plate armor" armor 5 self] + [damage p5]
 Cap at 4 components. A prompt asking for 8 effects still yields at most the 4 most prominent.
 
 COMBOS (multiple of YOUR units acting together in one command)
@@ -185,8 +188,10 @@ template projectile, "A roaring fireball screams across the arena!"
 "I poison their bloodstream so they bleed out slowly" -> [dot nature power 5 \
 duration 3 opponent], element nature, "Venom crawls through their veins."
 "I set them on fire" -> [dot fire power 5 duration 3 opponent], "Flames catch and spread."
-"I put on a full suit of enchanted plate armor" -> [barrier power 6 self], \
-template shield_raise, "Plate clangs shut — it'll soak a beating."
+"I put on a full suit of enchanted plate armor" -> [item name "enchanted plate armor" \
+armor 6 self], "Plate clangs shut — every blow will glance off."
+"I conjure a crackling force field" -> [barrier power 6 self], template shield_raise, \
+"An energy shield flares up."
 "I mark them with a hex so every blow wounds them worse" -> [stat damage_taken +4 \
 duration 3 opponent], "A hex blooms — their guard falters."
 "I freeze them solid so they can't move" -> [control duration 2 opponent], \
@@ -207,9 +212,10 @@ power 5 physical tags ["undead"]], "Bones clatter up, bow drawn."
 name "flaming greatsword" element fire power 7], "The orc hefts a blazing greatsword."
 "I forge kryptonite armor for myself" -> [item name "kryptonite armor" tags \
 ["kryptonite"] target_id p1s], "Green-glowing plates lock into place."
-"I give my orc a full suit of diamond armor" (orc = p1e1a) -> [barrier target_id p1e1a \
-power 6] + [item target_id p1e1a name "diamond armor"], "Diamond plate encases the orc."
-"I put on a suit of heavy plate armor" -> [barrier power 6], "Steel plates lock on."
+"I give my orc a full suit of diamond armor" (orc = p1e1a) -> [item target_id p1e1a \
+name "diamond armor" armor 6], "Diamond plate encases the orc."
+"I strap on a worn leather jerkin" -> [item name "leather jerkin" armor 2 self], \
+"Scuffed leather — better than nothing."
 "My orc charges their wizard" (orc = your unit p1e2a, wizard = enemy p2e1b) -> \
 [damage source_id p1e2a target_id p2e1b], "The orc barrels into the wizard."
 "asdfjkl banana" -> [damage physical power 1], "A confused flail hits nothing."
@@ -300,6 +306,13 @@ _COMPONENT_SCHEMA: dict = {
             "description": "summon only: descriptors, e.g. ['undead','flying'].",
         },
         "item": {"type": "string", "description": "summon only: a starting weapon/armor."},
+        "armor": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8,
+            "description": "item only: worn-armor rating by material (leather ~2, iron ~4, "
+            "diamond ~6, netherite ~8) — a persistent per-hit damage reduction.",
+        },
     },
     "required": ["type"],
 }

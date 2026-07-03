@@ -211,6 +211,7 @@ class EffectComponent(BaseModel):
     hp: int | None = None
     tags: list[str] | None = None
     item: str | None = None
+    armor: int | None = None  # item only: a worn-armor rating (persistent % reduction)
     # damage/dot: the judge's matchup tier + the target trait that justifies it.
     # The server grounds ``eff_tag`` against the target's real tags (P3.3).
     effectiveness: Effectiveness = Effectiveness.neutral
@@ -347,16 +348,18 @@ class Weapon(BaseModel):
 
 class Item(BaseModel):
     """A piece of equipped gear, recorded on a unit for display + inspection.
-    Equipping also fans out into the unit's ``weapon`` / ``tags`` (which drive
-    combat) — this is the rich record of *what* was equipped (P1 items pass).
-    ``kind`` is inferred server-side: a weapon has element+power; gear grants tags."""
+    Equipping fans out into combat state: a weapon re-arms the unit; ``armor`` is a
+    **persistent % damage reduction** folded into the damage pipeline (`armor ×
+    damage_taken_per_point` less on every hit, until the unit dies); gear grants
+    ``tags``. ``kind`` is inferred server-side (weapon has power; armor has armor)."""
 
     model_config = ConfigDict(extra="forbid")
 
     name: str
-    kind: Literal["weapon", "gear"] = "gear"
+    kind: Literal["weapon", "armor", "gear"] = "gear"
     element: Element | None = None
     power: int | None = None
+    armor: int | None = None  # worn-armor rating -> persistent damage reduction
     tags: list[str] = Field(default_factory=list)
 
 

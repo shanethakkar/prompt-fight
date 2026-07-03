@@ -13,7 +13,7 @@ Each fixture asserts on the emitted component BUNDLE with optional keys:
   max/min_components  bundle-size bounds (restraint tests)
   element       some component carries this element
   power         max component power falls in [lo, hi]
-  checks        per-type detail: {type, stat?, target?, magnitude?, power?, duration?}
+  checks        per-type detail: {type, stat?, target?, magnitude?, power?, duration?, armor?}
 """
 
 from __future__ import annotations
@@ -53,6 +53,8 @@ def _check_matches(components, chk) -> bool:
         if "power" in chk and not _in_range(c.power, chk["power"]):
             continue
         if "duration" in chk and not _in_range(c.duration, chk["duration"]):
+            continue
+        if "armor" in chk and not _in_range(c.armor, chk["armor"]):
             continue
         return True
     return False

@@ -35,6 +35,7 @@ from app.models import (
     Side,
     SideState,
     StatKind,
+    Unit,
 )
 
 # ---------------------------------------------------------------------------
@@ -196,13 +197,16 @@ def normalize_components(
         elif ctype is ComponentType.item:
             raw_tags = item.get("tags")
             tags = [str(t)[:20] for t in raw_tags][:4] if isinstance(raw_tags, list) else []
-            # A weapon-item carries a `power`; a trinket/armor item just carries tags.
+            # A weapon-item carries `power`; worn armor carries an `armor` rating
+            # (persistent % reduction); a trinket just carries tags.
             wpn = _clamp(_int(item.get("power"), 0), 0, pmax) if "power" in item else 0
+            arm = _clamp(_int(item.get("armor"), 0), 0, mmax) if "armor" in item else 0
             comp = EffectComponent(
                 type=ctype,
                 target=ComponentTarget.caster,
                 element=element,
                 power=wpn or None,
+                armor=arm or None,
                 name=str(item.get("name") or "item")[:24],
                 tags=tags,
             )
@@ -451,8 +455,9 @@ def component_weight(c: EffectComponent, balance: BalanceConfig) -> float:
         # A summon's price scales with the body it puts on the board (hp + weapon).
         return ((c.hp or 0) / 10 + (c.power or 0)) * w.summon
     if c.type is ComponentType.item:
-        # Cheap utility; a weapon-item costs a touch more than a trinket.
-        return (2 + (c.power or 0)) * w.item
+        # Cheap utility; a weapon- or armor-item costs more with its rating
+        # (diamond armor > leather; a flaming sword > a bare trinket).
+        return (2 + (c.power or 0) + (c.armor or 0)) * w.item
     return 0.0
 
 
@@ -521,16 +526,21 @@ def effective_speed(base: int, effects: list[ActiveEffect]) -> int:
     return max(1, base + _stat_sum(effects, StatKind.speed))
 
 
-def damage_taken_mult(effects: list[ActiveEffect], balance: BalanceConfig) -> float:
-    """Multiplicative damage-taken factor from armor/expose effects, clamped.
+def damage_taken_mult(unit: Unit, balance: BalanceConfig) -> float:
+    """Multiplicative incoming-damage factor for a unit, clamped.
 
-    Each ``damage_taken`` stat effect contributes (1 + magnitude × per_point);
-    they multiply (two armors stack multiplicatively) then clamp to [floor, ceil].
+    Combines the timed ``damage_taken`` stat effects (brace ``−`` / expose ``+``,
+    each contributing ``1 + magnitude × per_point``) with **worn armor** — every
+    equipped armor item shaves ``armor × per_point`` off every hit, persistently.
+    All factors multiply, then clamp to [floor, ceil] (so max ~75% reduction).
     """
     mult = 1.0
-    for e in effects:
+    for e in unit.effects:
         if e.kind is EffectKind.stat and e.stat is StatKind.damage_taken:
             mult *= 1 + e.magnitude * balance.damage_taken_per_point
+    for it in unit.items:
+        if it.armor:
+            mult *= 1 - it.armor * balance.damage_taken_per_point
     return max(balance.damage_taken_mult_floor, min(balance.damage_taken_mult_ceil, mult))
 
 

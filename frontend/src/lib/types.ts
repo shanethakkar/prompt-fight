@@ -133,9 +133,10 @@ export interface Weapon {
 
 export interface Item {
   name: string;
-  kind: "weapon" | "gear";
+  kind: "weapon" | "armor" | "gear";
   element: Element | null;
   power: number | null;
+  armor: number | null; // worn-armor rating -> persistent % damage reduction
   tags: string[];
 }
 

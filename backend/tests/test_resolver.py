@@ -808,6 +808,20 @@ def test_item_trinket_adds_tags_only():
     assert it.kind == "gear" and it.tags == ["kryptonite"] and it.power is None
 
 
+def test_worn_armor_reduces_damage_and_persists():
+    from app.models import Item
+
+    st = state(active="p2")
+    st.p1.stickman.items = [Item(name="diamond armor", kind="armor", armor=6)]  # 60% less
+    r = turn(st, action(DMG6))  # raw 18 * 0.4 = 7.2 -> 7 through the armor
+    assert r.state.p1.stickman.hp == 93
+    # armor is item-inherent, so it survives the end-of-turn effect decrement:
+    st2 = r.state.model_copy(deep=True)
+    st2.active, st2.round = "p2", st2.round + 1
+    r2 = turn(st2, action(DMG6))
+    assert r2.state.p1.stickman.hp == 86  # still 60% reduced, not worn off
+
+
 def test_devastating_doubles_damage():
     r = turn(
         state(active="p1"), action({"type": "damage", "power": 6, "effectiveness": "devastating"})

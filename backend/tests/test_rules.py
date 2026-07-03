@@ -285,20 +285,48 @@ def test_effective_speed_floors_at_one():
     assert effective_speed(2, [stat_eff("speed", -9)]) == 1
 
 
+def _unit(effects=None, items=None):
+    return Unit(id="u", name="U", hp=100, max_hp=100, effects=effects or [], items=items or [])
+
+
 def test_damage_taken_mult_multiplies_and_floors():
     armor = [stat_eff("damage_taken", -4), stat_eff("damage_taken", -4)]
     # (1-0.4)*(1-0.4) = 0.36
-    assert damage_taken_mult(armor, BAL) == pytest.approx(0.36)
+    assert damage_taken_mult(_unit(effects=armor), BAL) == pytest.approx(0.36)
     heavy = [stat_eff("damage_taken", -8), stat_eff("damage_taken", -8)]
-    assert damage_taken_mult(heavy, BAL) == BAL.damage_taken_mult_floor  # clamped
+    assert damage_taken_mult(_unit(effects=heavy), BAL) == BAL.damage_taken_mult_floor  # clamped
 
 
 def test_damage_taken_mult_expose_increases():
-    assert damage_taken_mult([stat_eff("damage_taken", 4)], BAL) == pytest.approx(1.4)
+    assert damage_taken_mult(_unit(effects=[stat_eff("damage_taken", 4)]), BAL) == pytest.approx(
+        1.4
+    )
 
 
 def test_damage_taken_mult_neutral_when_no_armor():
-    assert damage_taken_mult([stat_eff("power", 3)], BAL) == 1.0
+    assert damage_taken_mult(_unit(effects=[stat_eff("power", 3)]), BAL) == 1.0
+
+
+def test_worn_armor_reduces_damage_taken():
+    from app.models import Item
+
+    diamond = _unit(items=[Item(name="diamond armor", kind="armor", armor=6)])
+    assert damage_taken_mult(diamond, BAL) == pytest.approx(0.4)  # 60% less
+    leather = _unit(items=[Item(name="leather jerkin", kind="armor", armor=2)])
+    assert damage_taken_mult(leather, BAL) == pytest.approx(0.8)  # 20% less
+    # worn armor stacks multiplicatively with a brace stat: (1-0.2)*(1-0.5) = 0.4
+    stacked = _unit(
+        effects=[stat_eff("damage_taken", -2)],
+        items=[Item(name="plate", kind="armor", armor=5)],
+    )
+    assert damage_taken_mult(stacked, BAL) == pytest.approx(0.4)
+
+
+def test_armor_item_costs_scale_with_rating():
+    trinket = EffectComponent(type=ComponentType.item, name="charm")
+    leather = EffectComponent(type=ComponentType.item, name="leather", armor=2)
+    diamond = EffectComponent(type=ComponentType.item, name="diamond", armor=6)
+    assert bundle_cost([diamond], BAL) > bundle_cost([leather], BAL) > bundle_cost([trinket], BAL)
 
 
 # ---------------------------------------------------------------------------
