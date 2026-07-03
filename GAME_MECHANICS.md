@@ -16,7 +16,7 @@
 | Resource | Start | Max | Regen |
 |---|---|---|---|
 | HP | 100 | 100 | none (except a `hot` effect you cast — §3) |
-| Mana | 10 | 20 | +3 at the end of each of your own turns |
+| Mana | 12 | 22 | +4 at the end of each of your own turns |
 
 - Actions cost mana (see §5). You cannot confirm an action you can't afford (outside sandbox mode).
 - Regen is applied at the **end** of your turn, so the mana shown when it's your turn to act is exactly what's spendable.
@@ -50,13 +50,14 @@ A player carries a **list** of active effects (`PlayerState.effects`, capped at 
 
 ## 5. Mana cost (server-computed, aggregate — never LLM-set)
 
-The whole bundle is priced together (summing per-component costs was a burst exploit):
+The whole bundle is priced together (summing per-component costs was a burst exploit). The exponent is applied **per component**, then summed — this keeps a single move's cost identical to a lone action while making multi-effect bundles affordable:
 
-`cost = min(max_bundle_cost, ceil( (Σ component_weight) ^ cost_exponent × bundle_mult[n] ))`
+`cost = min(max_bundle_cost, ceil( Σ(component_weightᵢ ^ cost_exponent) × bundle_mult[n] ))`
 
-- **component_weight:** `damage` = `power×1.0`, `heal` = `power×1.1`, `defense` = `power×0.8`, `dot` = `power×duration×0.3`, `hot` = `power×duration×0.35`, `stat` = `|magnitude|×duration×0.5`.
-- **bundle_mult** (super-additive surcharge by component count): 1 → 1.0, 2 → 1.3, 3 → 1.7. Combining is never cheaper than one big move.
-- **cost_exponent** = 1.2; **max_bundle_cost** = 20 (= mana_max). A single `damage` reproduces the old attack curve: power 5 → 7, power 6 → 9, power 10 → 16.
+- **component_weight:** `damage` = `power×1.0`, `heal` = `power×1.0`, `defense` = `power×0.75`, `dot` = `power×duration×0.28`, `hot` = `power×duration×0.32`, `stat` = `|magnitude|×duration×0.42`.
+- **bundle_mult** (super-additive surcharge by component count): 1 → 1.0, 2 → 1.15, 3 → 1.3.
+- **cost_exponent** = 1.2; **max_bundle_cost** = 20 (just under mana_max 22). A single `damage` reproduces the old attack curve: power 5 → 7, power 6 → 9, power 10 → 16.
+- **No burst discount:** because `Σ(wᵢ^e) ≥ max(wᵢ)^e` and `bundle_mult ≥ 1`, a bundle never costs less than its most expensive component alone. Typical 2-effect bundles land ~13–18 (heal+shield 13, damage+dot 15, lifesteal 18); 3-effect bundles ~18–22.
 
 This is the power-scaling throttle: "I collapse a black hole onto you" is legal — the judge scores it power 10, which prices it out of reach early and forces saving up. Imagination is unconstrained; drama isn't cheap.
 
@@ -120,6 +121,7 @@ Not implemented yet, in rough priority order: **A.2** `control`/stun (turn-skip)
 ---
 
 *Changelog (append newest first):*
+- 2026-07-03 — **Cost retune.** Bundle pricing now applies the exponent **per component** then sums (`Σ(wᵢ^e)`, was `(Σ wᵢ)^e`) — single-move costs are unchanged but 2-effect bundles dropped from the ~20 cap to ~13–18. Softened weights (heal 1.1→1.0, defense 0.8→0.75, dot/hot/stat down) and bundle multipliers (2: 1.3→1.15, 3: 1.7→1.3); mana economy up (start 10→12, max 20→22, regen 3→4). No-burst-discount invariant preserved.
 - 2026-07-03 — **Effect grammar (Stage A).** Replaced the 5 closed categories with an open-ended bundle of typed `EffectComponent`s (`damage`/`heal`/`dot`/`hot`/`stat`/`defense`). Rewrote §3–§8: persistent effect **list** (armor/poison/regen/weaken now persist and stack), **aggregate** bundle pricing with a super-additive surcharge, **component-kind** cooldowns, a three-phase turn with **start-of-turn over-time ticks + a new poison-KO path**, staged self-effects, and the pinned damage pipeline (type → armor → stance). Judge now emits a permissive component list; the server normalizes/clamps/caps. Deferred: stun, resource, blind/reliability, entities.
 - 2026-07-03 — **Turn model → alternating single-action turns** (Worms-style, was simultaneous). Resolver is now `resolve_turn(state, action)`; deleted speed-ordering / snapshot-delta / double-KO tiebreak / defense-priority tier. HP floors at 0. Effect/cooldown upkeep is end-of-*your*-turn (owner-turn timing). **Defenses are now persistent stances** (frozen at cast, consume-on-hit, expire next turn). Round cap checked at the round boundary. Events enriched (`target` + `effect` summary) for clear result narration.
 - 2026-07-02 — M1 resolver: pinned previously-ambiguous rules (signed-HP double-KO tiebreak, fixed damage pipeline, effect/cooldown staging, reflect returns to attacker, elements inert vs. undefended, buff/debuff single-slot). Superseded by the effect grammar above.

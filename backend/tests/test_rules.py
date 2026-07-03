@@ -122,8 +122,8 @@ def test_single_damage_cost_matches_legacy_curve(power, expected):
 def test_heal_and_defense_single_costs():
     heal = EffectComponent(type=ComponentType.heal, power=5)
     shield = EffectComponent(type=ComponentType.defense, subtype=DefenseSubtype.shield, power=5)
-    assert bundle_cost([heal], BAL) == 8  # ceil((5*1.1)**1.2)
-    assert bundle_cost([shield], BAL) == 6  # ceil((5*0.8)**1.2)
+    assert bundle_cost([heal], BAL) == 7  # ceil((5*1.0)**1.2)
+    assert bundle_cost([shield], BAL) == 5  # ceil((5*0.75)**1.2)
 
 
 def test_bundle_is_super_additive():
@@ -132,6 +132,47 @@ def test_bundle_is_super_additive():
     combined = bundle_cost([a, b], BAL)
     assert combined > bundle_cost([a], BAL)
     assert combined > bundle_cost([b], BAL)
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ([{"type": "heal", "power": 5}, {"type": "defense", "subtype": "shield", "power": 4}], 13),
+        ([{"type": "damage", "power": 5}, {"type": "dot", "power": 5, "duration": 3}], 15),
+        (
+            [
+                {"type": "stat", "stat": "speed", "magnitude": -6, "duration": 2},
+                {"type": "dot", "power": 5, "duration": 3},
+            ],
+            15,
+        ),
+        ([{"type": "damage", "power": 6}, {"type": "heal", "power": 5}], 18),  # lifesteal
+    ],
+)
+def test_retuned_bundle_targets(raw, expected):
+    """Retune lands typical 2-effect bundles at ~13-18, not pinned to the cap."""
+    assert bundle_cost(normalize_components(raw, BAL), BAL) == expected
+
+
+def test_no_burst_discount():
+    """A bundle never costs less than its most expensive component alone."""
+    bundles = [
+        [{"type": "damage", "power": 8}, {"type": "heal", "power": 3}],
+        [
+            {"type": "stat", "stat": "power", "magnitude": 8, "duration": 4},
+            {"type": "dot", "power": 2, "duration": 1},
+        ],
+        [
+            {"type": "damage", "power": 6},
+            {"type": "dot", "power": 5, "duration": 3},
+            {"type": "heal", "power": 4},
+        ],
+    ]
+    for raw in bundles:
+        comps = normalize_components(raw, BAL)
+        combined = bundle_cost(comps, BAL)
+        singles = [bundle_cost([c], BAL) for c in comps]
+        assert combined >= max(singles), f"{combined} < max single {max(singles)}"
 
 
 def test_bundle_cost_capped_at_max():

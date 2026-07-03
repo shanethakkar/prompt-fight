@@ -129,10 +129,10 @@ def test_new_match():
     assert body["match_id"]
     assert body["state"]["round"] == 1 and body["state"]["active"] == "p1"
     assert body["state"]["p1"]["name"] == "Ada"
-    assert body["state"]["p1"]["hp"] == 100 and body["state"]["p1"]["mana"] == 10
+    assert body["state"]["p1"]["hp"] == 100 and body["state"]["p1"]["mana"] == 12
     assert body["state"]["p1"]["effects"] == []
     cfg = body["config"]
-    assert cfg["hp_max"] == 100 and cfg["mana_max"] == 20
+    assert cfg["hp_max"] == 100 and cfg["mana_max"] == 22
     assert cfg["rewrites_per_turn"] == 2 and cfg["max_turns"] == 30
 
 

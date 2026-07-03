@@ -13,7 +13,9 @@ def test_loads_balance_config() -> None:
 def test_known_values() -> None:
     cfg = load_balance()
     assert cfg.hp_start == 100
-    assert cfg.mana_regen_per_turn == 3
+    assert cfg.mana_start == 12
+    assert cfg.mana_max == 22
+    assert cfg.mana_regen_per_turn == 4
     assert cfg.judge_model == "claude-haiku-4-5"
     assert cfg.component_weights.damage == 1.0
     assert cfg.bundle_multipliers["1"] == 1.0

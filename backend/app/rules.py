@@ -156,20 +156,22 @@ def component_weight(c: EffectComponent, balance: BalanceConfig) -> float:
 
 
 def bundle_cost(components: list[EffectComponent], balance: BalanceConfig) -> int:
-    """Aggregate mana cost: ceil((Σ weight)^exponent × bundle_mult[n]), capped.
+    """Aggregate mana cost: ceil(Σ(weightᵢ^exponent) × bundle_mult[n]), capped.
 
-    Combining effects is never cheaper than one big move — the super-additive
-    ``bundle_multipliers`` and the shared exponent see to that.
+    The exponent is applied PER component and then summed (not to the summed
+    weight), which keeps a 1-component bundle's cost identical to a lone move
+    while making multi-component bundles affordable. It still guarantees no
+    burst discount: Σ(wᵢ^e) ≥ max(wᵢ)^e and bundle_mult ≥ 1, so a bundle never
+    costs less than its most expensive component alone.
     """
     if not components:
         return 0
-    total_weight = sum(component_weight(c, balance) for c in components)
+    total = sum(component_weight(c, balance) ** balance.cost_exponent for c in components)
     n = len(components)
     mult = balance.bundle_multipliers.get(
         str(n), balance.bundle_multipliers[str(balance.max_components)]
     )
-    raw = total_weight**balance.cost_exponent * mult
-    return min(balance.max_bundle_cost, math.ceil(raw))
+    return min(balance.max_bundle_cost, math.ceil(total * mult))
 
 
 def kind_cooldowns(components: list[EffectComponent], balance: BalanceConfig) -> dict[str, int]:

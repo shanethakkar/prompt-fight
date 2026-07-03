@@ -34,6 +34,12 @@
 
 ---
 
+## 2026-07-03 — Bundle-cost retune (Batch B, step 1)
+- Done: A long-tail judge probe showed most 2-component bundles pinned to the cost cap (20), making the grammar's headline feature unaffordable in a future competitive mode. Fixed the pricing formula in `rules.bundle_cost` to apply the exponent **per component then sum** (`Σ(wᵢ^exp)×mult[n]`) instead of `(Σ wᵢ)^exp` — single-move costs stay identical (legacy damage curve preserved) while bundles get cheaper, and the no-burst-discount invariant holds automatically. Softened `component_weights` (heal 1.1→1.0, defense 0.8→0.75, dot/hot/stat down) + `bundle_multipliers` (2→1.15, 3→1.3), and raised the mana economy (start 10→12, max 20→22, regen 3→4).
+- Files: backend/app/rules.py, config/balance.json, backend/tests/{test_rules,test_config,test_api,test_resolver}.py, GAME_MECHANICS.md (§2/§5 + changelog), PROGRESS.md.
+- Verified: `uv run pytest -m "not live"` **106 passed** + ruff/format clean (no judge change → live evals untouched). Target costs confirmed: heal+shield 13, damage+dot 15, lifesteal 18, berserk/3-bundle 20; single damage p6 still 9.
+- Follow-ups: Batch B step 2 (durability barrier + combat ledger), step 3 (real stun A.2), then a full-match balance playtest.
+
 ## 2026-07-03 — Effect grammar (Stage A): frontend
 - Done: Reworked the hot-seat UI onto the component grammar. `types.ts`: mirror `Action{components[]}` + `EffectComponent`, `PlayerState.effects[]`, kind-keyed cooldowns, new multi-beat `ResolutionEvent`. `game.ts`: `describeComponent`/`describeAction` (bundle chips), `narrateResult` rewritten by component kind incl. dot/hot ticks + armor-as-% + bundle beats, `statusChips` reads the effects list (poison/regen/weaken/armor/expose/stance + cooldowns). `CostPreview` shows each component as a chip + aggregate cost. `PlaybackLog` renders **all** beats of a turn (start-of-turn ticks then each component). `GameBoard` typed to `Action`. `PlayerStatus`/`api.ts` unchanged (stable helper APIs).
 - Files: frontend/src/lib/{types,game}.ts + game.test.ts (rewritten), frontend/src/app/_components/{CostPreview,PlaybackLog,GameBoard}.tsx, PROGRESS.md.
