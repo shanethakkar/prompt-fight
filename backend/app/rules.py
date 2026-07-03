@@ -23,6 +23,7 @@ from app.models import (
     ComponentType,
     DefenseSubtype,
     EffectComponent,
+    Effectiveness,
     EffectKind,
     Element,
     GameState,
@@ -207,6 +208,12 @@ def normalize_components(
         src, tid = item.get("source_id"), item.get("target_id")
         comp.source_id = src if isinstance(src, str) else None
         comp.target_id = tid if isinstance(tid, str) else None
+        if comp.type in (ComponentType.damage, ComponentType.dot):
+            comp.effectiveness = _as_enum(
+                item.get("effectiveness"), Effectiveness, Effectiveness.neutral
+            )
+            et = item.get("eff_tag")
+            comp.eff_tag = str(et)[:24] if isinstance(et, str) else None
         out.append(comp)
 
     # "Can't summon and attack the same turn": a bundle that summons carries no
@@ -218,7 +225,38 @@ def normalize_components(
     if roster is not None:
         for c in out:
             _resolve_ids(c, roster)
+            _ground_effectiveness(c, roster)
     return _enforce_combo_caps(out, balance)
+
+
+def _ground_effectiveness(comp: EffectComponent, roster: Roster) -> None:
+    """Anti-exploit: a matchup tier above neutral needs BOTH ends grounded in real
+    battlefield state. (1) The cited ``eff_tag`` must be a REAL tag on the target
+    (you actually summoned a kryptonian / it wears kryptonite armor). (2) The
+    attacker must be specially equipped — carry a tag/item or an elemental weapon —
+    so a bare fist can't "devastate" Superman; you must equip the counter first.
+    Otherwise the tier is forced back to neutral."""
+    if comp.effectiveness is Effectiveness.neutral:
+        return
+    target = next((u for u in roster.foe if u.id == comp.target_id), None)
+    source = next((u for u in roster.you if u.id == comp.source_id), None)
+    tag = (comp.eff_tag or "").lower()
+    target_has_tag = bool(target and tag and tag in {t.lower() for t in target.tags})
+    attacker_special = bool(
+        source
+        and (
+            source.tags
+            or source.items
+            or (source.weapon and source.weapon.element != Element.physical)
+        )
+    )
+    if not (target_has_tag and attacker_special):
+        comp.effectiveness = Effectiveness.neutral
+        comp.eff_tag = None
+
+
+def effectiveness_mult(tier: Effectiveness, balance: BalanceConfig) -> float:
+    return balance.effectiveness_multipliers.get(tier.value, 1.0)
 
 
 def _enforce_combo_caps(

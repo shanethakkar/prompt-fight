@@ -21,6 +21,8 @@ export type StatKind = "power" | "speed" | "damage_taken";
 
 export type DefenseSubtype = "shield" | "dodge" | "reflect";
 
+export type Effectiveness = "resisted" | "neutral" | "strong" | "devastating";
+
 export type EffectKind = "dot" | "hot" | "stat" | "defense" | "control";
 
 export type Template =
@@ -78,6 +80,9 @@ export interface EffectComponent {
   hp?: number | null;
   tags?: string[] | null;
   item?: string | null;
+  // damage/dot matchup tier
+  effectiveness?: Effectiveness;
+  eff_tag?: string | null;
 }
 
 export interface Action {
@@ -165,6 +170,7 @@ export interface EffectSummary {
   absorbed?: number | null;
   barrier_absorbed?: number | null;
   barrier_remaining?: number | null;
+  effectiveness?: string | null;
   label?: string;
 }
 

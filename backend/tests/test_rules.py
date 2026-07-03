@@ -416,3 +416,91 @@ def test_combo_cost_cap_scales_with_participants():
         r,
     )
     assert bundle_cost(comps, BAL) > BAL.max_bundle_cost  # a 2-unit combo can cost more
+
+
+# ---------------------------------------------------------------------------
+# Effectiveness (P3.3): tier multipliers + grounding to target tags
+# ---------------------------------------------------------------------------
+
+
+def test_effectiveness_mult_values():
+    from app.models import Effectiveness
+    from app.rules import effectiveness_mult
+
+    assert effectiveness_mult(Effectiveness.devastating, BAL) == 2.0
+    assert effectiveness_mult(Effectiveness.resisted, BAL) == 0.4
+    assert effectiveness_mult(Effectiveness.neutral, BAL) == 1.0
+
+
+def test_effectiveness_grounds_to_a_real_target_tag():
+    from app.models import Effectiveness
+
+    r = Roster(
+        # attacker is equipped with kryptonite (tag) -> "specially equipped"
+        you=[
+            RosterUnit(id="p1s", name="A", kind="stickman", hp=100, max_hp=100, tags=["kryptonite"])
+        ],
+        foe=[
+            RosterUnit(
+                id="p2s", name="Superman", kind="stickman", hp=100, max_hp=100, tags=["kryptonian"]
+            )
+        ],
+    )
+    grounded = normalize_components(
+        [
+            {
+                "type": "damage",
+                "power": 6,
+                "effectiveness": "devastating",
+                "eff_tag": "kryptonian",
+                "target_id": "p2s",
+            }
+        ],
+        BAL,
+        r,
+    )
+    assert grounded[0].effectiveness is Effectiveness.devastating
+    ungrounded = normalize_components(
+        [
+            {
+                "type": "damage",
+                "power": 6,
+                "effectiveness": "devastating",
+                "eff_tag": "undead",
+                "target_id": "p2s",
+            }
+        ],
+        BAL,
+        r,
+    )
+    assert ungrounded[0].effectiveness is Effectiveness.neutral  # tag not on target -> dropped
+
+
+def test_effectiveness_needs_a_specially_equipped_attacker():
+    from app.models import Effectiveness
+
+    # target IS a kryptonian, but a bare-fisted attacker (no gear) can't devastate it.
+    r = Roster(
+        you=[
+            RosterUnit(id="p1s", name="A", kind="stickman", hp=100, max_hp=100)
+        ],  # no tags/items/weapon
+        foe=[
+            RosterUnit(
+                id="p2s", name="Superman", kind="stickman", hp=100, max_hp=100, tags=["kryptonian"]
+            )
+        ],
+    )
+    out = normalize_components(
+        [
+            {
+                "type": "damage",
+                "power": 6,
+                "effectiveness": "devastating",
+                "eff_tag": "kryptonian",
+                "target_id": "p2s",
+            }
+        ],
+        BAL,
+        r,
+    )
+    assert out[0].effectiveness is Effectiveness.neutral

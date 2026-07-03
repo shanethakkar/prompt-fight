@@ -126,6 +126,9 @@ class BalanceConfig(BaseModel):
     damage_taken_mult_floor: float
     damage_taken_mult_ceil: float
 
+    effectiveness_multipliers: dict[str, float]
+    offense_mult_ceil: float
+
     defense_stance_duration_turns: int
 
     kind_cooldowns_turns: KindCooldowns

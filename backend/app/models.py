@@ -63,6 +63,17 @@ class DefenseSubtype(StrEnum):
     reflect = "reflect"
 
 
+class Effectiveness(StrEnum):
+    """How well an attack suits its target (kryptonite vs Superman). The judge picks
+    the tier from the matchup; the server owns the multiplier and grounds the tier
+    against the target's real tags (P3.3)."""
+
+    resisted = "resisted"
+    neutral = "neutral"
+    strong = "strong"
+    devastating = "devastating"
+
+
 class EffectKind(StrEnum):
     """The kinds of persistent effect that can sit in a player's effects list."""
 
@@ -187,6 +198,10 @@ class EffectComponent(BaseModel):
     hp: int | None = None
     tags: list[str] | None = None
     item: str | None = None
+    # damage/dot: the judge's matchup tier + the target trait that justifies it.
+    # The server grounds ``eff_tag`` against the target's real tags (P3.3).
+    effectiveness: Effectiveness = Effectiveness.neutral
+    eff_tag: str | None = None
 
 
 class RosterUnit(BaseModel):
@@ -373,6 +388,7 @@ class EffectSummary(BaseModel):
     absorbed: int | None = None  # flat stance absorption
     barrier_absorbed: int | None = None  # damage soaked by a durability pool
     barrier_remaining: int | None = None  # pool left after this hit
+    effectiveness: str | None = None  # matchup tier if not neutral (P3.3)
     label: str = ""
 
 

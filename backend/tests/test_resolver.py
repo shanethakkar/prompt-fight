@@ -779,3 +779,17 @@ def test_item_trinket_adds_tags_only():
     )
     sm = r.state.p1.stickman
     assert "kryptonite" in sm.tags and "kryptonite armor" in sm.items and sm.weapon is None
+
+
+def test_devastating_doubles_damage():
+    r = turn(
+        state(active="p1"), action({"type": "damage", "power": 6, "effectiveness": "devastating"})
+    )
+    assert r.state.p2.stickman.hp == 100 - 36  # 18 * 2.0
+
+
+def test_resisted_reduces_damage():
+    r = turn(
+        state(active="p1"), action({"type": "damage", "power": 5, "effectiveness": "resisted"})
+    )
+    assert r.state.p2.stickman.hp == 100 - 6  # round(15 * 0.4)

@@ -14,6 +14,7 @@ from app.models import (
     ComponentTarget,
     ComponentType,
     DefenseSubtype,
+    Effectiveness,
     Element,
     Roster,
     Shape,
@@ -86,6 +87,19 @@ the unit (default your stickman) and `name`. For a WEAPON add `element`+`power` 
 (re)arms that unit — a flaming sword makes its attacks fire). For armor/a trinket add \
 `tags` (e.g. ["kryptonite"] for kryptonite armor). Use for "give my orc a battle axe", \
 "equip a kryptonite blade", "put on enchanted armor".
+
+EFFECTIVENESS (matchups — the fun part). For a `damage` or `dot`, you MAY set \
+`effectiveness` = resisted | neutral | strong | devastating, plus `eff_tag` = the \
+target's trait it hinges on. TWO things must both be true to leave neutral: \
+(1) the target ACTUALLY HAS that tag in the roster, AND (2) the ATTACK is the right \
+counter for it. Judge the ATTACK, not just the target: \
+  • kryptonite vs a `kryptonian` → devastating; but a mundane rock/punch/arrow vs that \
+same `kryptonian` → RESISTED (they're near-invulnerable to normal force). \
+  • fire vs a `plant`/`ice`/`frozen` unit → strong; water vs `fire` → strong. \
+  • a kryptonite attack vs a unit wearing kryptonite armor (tag `kryptonite`) → resisted. \
+  • silver vs a `werewolf` → devastating; a normal blade vs it → resisted. \
+Default neutral. NEVER invent a tag — if the roster doesn't show it on the target, \
+leave it neutral (the server drops ungrounded tiers anyway).
 
 CHOOSING dot VS stat: if the prompt describes ongoing HP loss ("bleed", "burn", \
 "poison courses through them"), use `dot`. If it describes making them WEAKER or \
@@ -222,6 +236,15 @@ _COMPONENT_SCHEMA: dict = {
             "type": "string",
             "enum": _values(DefenseSubtype),
             "description": "defense only: shield | dodge | reflect.",
+        },
+        "effectiveness": {
+            "type": "string",
+            "enum": _values(Effectiveness),
+            "description": "damage/dot: matchup tier vs the target. Default neutral.",
+        },
+        "eff_tag": {
+            "type": "string",
+            "description": "target's trait justifying a non-neutral tier (a real roster tag).",
         },
         "name": {"type": "string", "description": "summon only: the new unit's name."},
         "hp": {

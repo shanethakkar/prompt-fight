@@ -32,6 +32,7 @@ from app.models import (
     ComponentType,
     DefenseSubtype,
     EffectComponent,
+    Effectiveness,
     EffectKind,
     EffectSummary,
     Element,
@@ -50,6 +51,7 @@ from app.rules import (
     damage_taken_mult,
     effective_power,
     effective_speed,
+    effectiveness_mult,
     kind_cooldowns,
     type_multiplier,
 )
@@ -139,13 +141,14 @@ def _apply_damage(
     element: Element,
     atk_power: int,
     atk_speed: int,
+    eff_mult: float,
     stance_available: bool,
     balance: BalanceConfig,
 ) -> tuple[Side, int, Outcome, EffectSummary | None]:
     """Resolve one instant-damage component through the pinned pipeline (rule 6):
 
-    raw -> ×type (only vs a stance element) -> ×damage_taken (armor, always)
-    -> flat stance block/dodge/reflect (consumed on use) -> floor 0.
+    raw -> ×effectiveness (matchup, always) -> ×type (only vs a stance element)
+    -> ×damage_taken (armor, always) -> flat stance block/dodge/reflect -> floor 0.
 
     ``stance_available`` is False once an earlier component in the bundle already
     consumed the opponent's stance. Returns (target, damage, outcome, summary).
@@ -155,11 +158,16 @@ def _apply_damage(
     stance = _stance(opponent) if stance_available else None
 
     if stance is None:
-        dmg = max(0, round(raw * dt_mult))  # undefended -> elements inert (neutral)
+        # undefended -> elements inert, but the matchup (kryptonite vs Superman) still bites.
+        dmg = max(0, round(raw * eff_mult * dt_mult))
         return o_side, dmg, Outcome.hit_knockback, None
 
     opponent.effects.remove(stance)  # consume-on-hit
-    typed = raw * type_multiplier(element, stance.element, balance) * dt_mult
+    # effectiveness and the element chart both scale offense; clamp their product.
+    offense = min(
+        balance.offense_mult_ceil, eff_mult * type_multiplier(element, stance.element, balance)
+    )
+    typed = raw * offense * dt_mult
     typed_i = max(0, round(typed))
 
     if stance.subtype is DefenseSubtype.shield:
@@ -349,6 +357,7 @@ def resolve_turn(state: GameState, action: Action | None, balance: BalanceConfig
             element = source_unit.weapon.element if source_unit.weapon else c.element
             atk_power = effective_power(base, source_unit.effects)
             atk_speed = effective_speed(act_speed, source_unit.effects)
+            e_mult = effectiveness_mult(c.effectiveness, balance)
             tside, amount, outcome, summary = _apply_damage(
                 a_side,
                 o_side,
@@ -357,6 +366,7 @@ def resolve_turn(state: GameState, action: Action | None, balance: BalanceConfig
                 element,
                 atk_power,
                 atk_speed,
+                e_mult,
                 True,
                 balance,
             )
@@ -369,6 +379,9 @@ def resolve_turn(state: GameState, action: Action | None, balance: BalanceConfig
                 summary.barrier_remaining = remaining
                 if amount == 0:
                     outcome = Outcome.blocked
+            if c.effectiveness is not Effectiveness.neutral:  # tag the beat for narration
+                summary = summary or EffectSummary(kind="damage")
+                summary.effectiveness = c.effectiveness.value
             hit_unit.hp = max(0, hit_unit.hp - amount)
 
         elif c.type is ComponentType.heal:
@@ -380,7 +393,9 @@ def resolve_turn(state: GameState, action: Action | None, balance: BalanceConfig
             summary = EffectSummary(kind="heal", magnitude=amount)
 
         elif c.type is ComponentType.dot:
-            per_turn = max(1, round((c.power or 0) * balance.dot_multiplier))
+            # effectiveness is baked in at application (the tick magnitude is frozen).
+            e_mult = effectiveness_mult(c.effectiveness, balance)
+            per_turn = max(1, round((c.power or 0) * balance.dot_multiplier * e_mult))
             target_unit.effects.append(
                 ActiveEffect(
                     kind=EffectKind.dot,
@@ -392,7 +407,13 @@ def resolve_turn(state: GameState, action: Action | None, balance: BalanceConfig
                 )
             )
             summary = EffectSummary(
-                kind="dot", per_turn=per_turn, duration=c.duration, label=_dot_label(c.element)
+                kind="dot",
+                per_turn=per_turn,
+                duration=c.duration,
+                label=_dot_label(c.element),
+                effectiveness=None
+                if c.effectiveness is Effectiveness.neutral
+                else c.effectiveness.value,
             )
 
         elif c.type is ComponentType.hot:

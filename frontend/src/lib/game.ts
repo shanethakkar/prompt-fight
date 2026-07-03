@@ -162,7 +162,7 @@ export function narrateResult(e: ResolutionEvent, names: Record<Side, string>): 
 
   switch (e.kind) {
     case "damage":
-      return narrateDamage(e, actor, target);
+      return narrateDamage(e, actor, target) + effSuffix(eff);
     case "barrier":
       return `${actor} raises a barrier${eff?.barrier_remaining ? ` (${eff.barrier_remaining} absorb)` : ""}.`;
     case "control":
@@ -172,7 +172,7 @@ export function narrateResult(e: ResolutionEvent, names: Record<Side, string>): 
     case "heal":
       return e.amount > 0 ? `${actor} recovers ${e.amount} HP.` : `${actor} is already at full health.`;
     case "dot":
-      return `${actor} afflicts ${target} with ${eff?.label ?? "an effect"} — ${eff?.per_turn}/turn for ${eff?.duration} turns.`;
+      return `${actor} afflicts ${target} with ${eff?.label ?? "an effect"} — ${eff?.per_turn}/turn for ${eff?.duration} turns.${effSuffix(eff)}`;
     case "hot":
       return `${actor} starts regenerating — ${eff?.per_turn}/turn for ${eff?.duration} turns.`;
     case "stat":
@@ -184,6 +184,20 @@ export function narrateResult(e: ResolutionEvent, names: Record<Side, string>): 
     }
     case "fizzle":
       return `${actor}'s action fizzles.`;
+    default:
+      return "";
+  }
+}
+
+/** A flourish for a non-neutral matchup (kryptonite vs Superman). */
+function effSuffix(eff: ResolutionEvent["effect"]): string {
+  switch (eff?.effectiveness) {
+    case "devastating":
+      return " 💥 Devastating!";
+    case "strong":
+      return " Super effective!";
+    case "resisted":
+      return " …but it's resisted.";
     default:
       return "";
   }
