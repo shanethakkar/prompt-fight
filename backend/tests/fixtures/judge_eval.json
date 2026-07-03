@@ -31,6 +31,8 @@
 
     {"prompt": "I put on a full suit of enchanted plate armor", "contains": ["barrier"], "checks": [{"type": "barrier", "target": "self", "power": [4, 8]}]},
     {"prompt": "I conjure a shimmering force field around myself", "contains": ["barrier"], "checks": [{"type": "barrier", "target": "self"}]},
+    {"prompt": "I equip a full suit of diamond armor", "contains": ["barrier"]},
+    {"prompt": "I strap heavy iron plate armor onto myself", "contains": ["barrier"]},
 
     {"prompt": "I raise a sturdy shield to block the blow", "contains": ["defense"], "checks": [{"type": "defense", "target": "self"}]},
     {"prompt": "I nimbly dodge to the side", "contains": ["defense"], "checks": [{"type": "defense", "target": "self"}]},

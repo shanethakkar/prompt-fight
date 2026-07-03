@@ -68,10 +68,13 @@ COMPONENT TYPES (each component has a `type` and a `target`: "self" or "opponent
 Needs `subtype` (shield | dodge | reflect), `power`, `element`. A shield absorbs, a \
 dodge evades a slower hit, a reflect bounces a weaker hit back. Use for "raise my \
 shield", "dodge", "parry" — a one-time reaction.
-- barrier — a PERSISTENT durability pool (armor / ward / force field) that soaks \
-incoming hits across many turns until it shatters. target self. Needs `power`. Use \
-for "put on plate armor", "conjure a force field", "wrap myself in a lasting ward", \
-"a suit of armor" — durable gear, not a one-turn block.
+- barrier — a PERSISTENT durability pool (worn armor / ward / force field) that soaks \
+incoming hits across many turns until it shatters. This is how a unit gets real damage \
+PROTECTION — ALWAYS use it for armor. target self, or set `target_id` to armor one of \
+your OTHER units (a summoned ally). Needs `power` (the armor rating). Use for "put on \
+plate/diamond/iron armor", "give my orc a suit of armor", "armor up", "conjure a force \
+field", "wrap them in a lasting ward" — protective gear that actually reduces damage. \
+(An `item` only RECORDS gear + tags and does NOT reduce damage — armor is a `barrier`.)
 - control — a STUN: the opponent skips their turn(s). target opponent. Needs \
 `duration` (1-2). Use for "freeze them solid", "petrify them", "stun them", "stop \
 time", "knock them out cold", "trap them so they can't move" — total loss of a turn, \
@@ -86,11 +89,14 @@ dragon/giant/demon/god/titan ~70. A common animal or minion is NOT a tank — a 
 god ~8). Optional `tags` (e.g. ["undead"], ["flying"]) and `item` (a \
 weapon/armor it spawns holding). A summon takes your WHOLE turn — you CANNOT summon \
 and attack in the same command; the new unit acts on your NEXT turn.
-- item — equip ONE of YOUR existing units with gear. target self; set `target_id` to \
-the unit (default your stickman) and `name`. For a WEAPON add `element`+`power` (it \
-(re)arms that unit — a flaming sword makes its attacks fire). For armor/a trinket add \
-`tags` (e.g. ["kryptonite"] for kryptonite armor). Use for "give my orc a battle axe", \
-"equip a kryptonite blade", "put on enchanted armor".
+- item — equip ONE of YOUR units with a WEAPON or a special TRINKET. target self; set \
+`target_id` (default your stickman) and `name`. For a WEAPON add `element`+`power` — it \
+(re)arms that unit (a flaming sword makes its attacks fire). For gear whose POINT is a \
+MATCHUP tag add `tags` (e.g. ["kryptonite"] for kryptonite armor, ["silver"] silver \
+blade). Use for "give my orc a battle axe", "equip a kryptonite blade". \
+IMPORTANT: an `item` does NOT reduce damage. For PROTECTIVE armor use a `barrier` — and \
+for a NAMED suit of armor, emit the `barrier` (the protection) AND an `item` (so it \
+shows as worn gear): both `target_id` the same unit.
 
 EFFECTIVENESS (matchups — the fun part). For a `damage` or `dot`, you MAY set \
 `effectiveness` = resisted | neutral | strong | devastating, plus `eff_tag` = the \
@@ -201,6 +207,9 @@ power 5 physical tags ["undead"]], "Bones clatter up, bow drawn."
 name "flaming greatsword" element fire power 7], "The orc hefts a blazing greatsword."
 "I forge kryptonite armor for myself" -> [item name "kryptonite armor" tags \
 ["kryptonite"] target_id p1s], "Green-glowing plates lock into place."
+"I give my orc a full suit of diamond armor" (orc = p1e1a) -> [barrier target_id p1e1a \
+power 6] + [item target_id p1e1a name "diamond armor"], "Diamond plate encases the orc."
+"I put on a suit of heavy plate armor" -> [barrier power 6], "Steel plates lock on."
 "My orc charges their wizard" (orc = your unit p1e2a, wizard = enemy p2e1b) -> \
 [damage source_id p1e2a target_id p2e1b], "The orc barrels into the wizard."
 "asdfjkl banana" -> [damage physical power 1], "A confused flail hits nothing."
