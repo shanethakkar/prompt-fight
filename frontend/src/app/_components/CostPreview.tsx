@@ -4,18 +4,20 @@ import { canConfirm, canRewrite, describeAction, elementColor } from "@/lib/game
 export function CostPreview({
   res,
   rewritesRemaining,
+  sandbox,
   onConfirm,
   onRewrite,
 }: {
   res: JudgeResponse;
   rewritesRemaining: number;
+  sandbox: boolean;
   onConfirm: () => void;
   onRewrite: () => void;
 }) {
   const action = res.action!;
-  const confirmable = canConfirm(res, rewritesRemaining);
+  const confirmable = sandbox || canConfirm(res, rewritesRemaining);
   const rewritable = canRewrite(rewritesRemaining);
-  const forced = rewritesRemaining <= 0;
+  const forced = !sandbox && rewritesRemaining <= 0;
 
   return (
     <div className="flex w-full max-w-lg flex-col gap-4">

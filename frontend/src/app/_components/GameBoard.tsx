@@ -23,13 +23,15 @@ export default function GameBoard() {
   const [lastResult, setLastResult] = useState<ResolveResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [inputError, setInputError] = useState<string | null>(null);
+  const [sandbox, setSandbox] = useState(true);
 
   const activeSide = state?.active ?? "p1";
   const activePlayer = state ? state[activeSide] : null;
 
-  async function startMatch(p1Name: string, p2Name: string) {
+  async function startMatch(p1Name: string, p2Name: string, sb: boolean) {
     setBusy(true);
     setInputError(null);
+    setSandbox(sb);
     try {
       const r = await api.newMatch(p1Name, p2Name);
       setMatchId(r.match_id);
@@ -127,6 +129,7 @@ export default function GameBoard() {
         <div className="flex w-full max-w-lg flex-col gap-5">
           <div className="text-center text-xs uppercase tracking-widest text-zinc-500">
             Round {state.round} / {config.max_turns}
+            {sandbox && <span className="ml-2 text-amber-400">· sandbox</span>}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <PlayerStatus player={state.p1} config={config} active={activeSide === "p1" && phase !== "handoff"} />
@@ -147,6 +150,7 @@ export default function GameBoard() {
               <CostPreview
                 res={preview}
                 rewritesRemaining={rewritesLeft}
+                sandbox={sandbox}
                 onConfirm={confirmAction}
                 onRewrite={rewriteAction}
               />
@@ -165,7 +169,7 @@ export default function GameBoard() {
         <VictoryScreen
           result={lastResult}
           finalState={state}
-          onPlayAgain={() => startMatch(state.p1.name, state.p2.name)}
+          onPlayAgain={() => startMatch(state.p1.name, state.p2.name, sandbox)}
         />
       )}
     </main>
