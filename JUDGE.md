@@ -11,6 +11,7 @@ The judge is the game's only AI component: an LLM that converts a freeform playe
 - Structured output enforced via **forced tool-use**: the judge must call a single `emit_action` tool (`tool_choice` forces it) whose input schema mirrors §4. A malformed/absent tool call is retried once, then falls back to a "sputter" no-op (a single power-1 melee `damage` component).
 - The judge system prompt lives in `backend/app/judge_prompt.py` (`JUDGE_SYSTEM`), which mirrors this file. Keep the two in sync; the eval suite (§7) is the regression guard.
 - **Server-side normalization is the safety net.** The judge's component list is *permissive* (all params optional). `rules.normalize_components` validates required-per-type, clamps every numeric to its balance range, enforces the structural caps (§3), and drops anything invalid — so a judge mistake degrades gracefully instead of crashing or exploiting.
+- **Stateful (P3.1a):** `/api/judge` sends the full battlefield; the server renders a compact **roster** (each side's units with a server-minted `id`, name, kind, rough HP) into the prompt. The judge echoes ids in each component's `source_id` (which of *your* units acts, default your stickman) and `target_id` (which unit it lands on) — it **never invents an id**. `normalize_components` validates every id against the real roster (invalid → the relevant stickman); the resolver never trusts a raw id. With no roster passed (offline evals), the judge behaves statelessly as before.
 
 ## 2. Judge instructions (core rules)
 

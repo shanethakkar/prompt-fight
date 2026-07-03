@@ -172,6 +172,46 @@ class EffectComponent(BaseModel):
     duration: int | None = None  # dot/hot/stat: turns the effect persists
     stat: StatKind | None = None  # stat: which stat shifts
     subtype: DefenseSubtype | None = None  # defense: shield/dodge/reflect
+    # Which of the caster's units performs this / which unit it lands on. The
+    # judge echoes server-minted ids; normalize_components validates them against
+    # the real roster (invalid -> the relevant stickman). None -> stickman.
+    source_id: str | None = None
+    target_id: str | None = None
+
+
+class RosterUnit(BaseModel):
+    """The judge's view of one unit — identity + rough HP only (no effects/barriers)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    name: str
+    kind: UnitKind = "stickman"
+    hp: int
+    max_hp: int
+
+
+class Roster(BaseModel):
+    """Compact battlefield the judge sees so it can resolve unit references ("my
+    orc" -> an id), only act on units that exist, and (P3.3) judge matchups. The
+    caster is always ``you``. Also drives server-side id validation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    you: list[RosterUnit] = Field(default_factory=list)
+    foe: list[RosterUnit] = Field(default_factory=list)
+
+    def caster_ids(self) -> set[str]:
+        return {u.id for u in self.you}
+
+    def opponent_ids(self) -> set[str]:
+        return {u.id for u in self.foe}
+
+    def caster_stickman(self) -> str | None:
+        return next((u.id for u in self.you if u.kind == "stickman"), None)
+
+    def opponent_stickman(self) -> str | None:
+        return next((u.id for u in self.foe if u.kind == "stickman"), None)
 
 
 class Action(BaseModel):

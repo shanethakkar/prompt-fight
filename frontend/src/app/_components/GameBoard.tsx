@@ -73,10 +73,9 @@ export default function GameBoard() {
     setBusy(true);
     setInputError(null);
     try {
-      const p = state[state.active];
       const res = await api.judge({
         prompt,
-        player: { mana: p.mana, cooldowns: p.cooldowns },
+        state,
         match_id: matchId,
         rewrites_remaining: rewritesLeft,
       });

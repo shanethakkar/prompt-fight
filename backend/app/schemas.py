@@ -2,26 +2,19 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from app.models import Action, GameState
-
-
-class PlayerSnapshot(BaseModel):
-    """The judging-relevant slice of a player's state."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    mana: int
-    # Cooldowns keyed by component-kind ("heal", "defense", "control").
-    cooldowns: dict[str, int] = Field(default_factory=dict)
 
 
 class JudgeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     prompt: str
-    player: PlayerSnapshot
+    # The full battlefield: the judge is now stateful (it resolves unit references
+    # and only acts on units that exist). The server derives the compact roster
+    # and the active side's mana/cooldowns from this.
+    state: GameState
     match_id: str
     # Client-owned turn state; echoed back decremented. Defaults per balance.json.
     rewrites_remaining: int | None = None

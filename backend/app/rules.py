@@ -25,6 +25,10 @@ from app.models import (
     EffectComponent,
     EffectKind,
     Element,
+    GameState,
+    Roster,
+    RosterUnit,
+    Side,
     StatKind,
 )
 
@@ -51,13 +55,46 @@ def _int(value: Any, default: int) -> int:
         return default
 
 
-def normalize_components(raw: list[Any], balance: BalanceConfig) -> list[EffectComponent]:
+def build_roster(state: GameState, caster: Side) -> Roster:
+    """The compact battlefield the judge sees + drives id validation (stickman first)."""
+
+    def _units(key: str) -> list[RosterUnit]:
+        side = state.p1 if key == "p1" else state.p2
+        return [
+            RosterUnit(id=u.id, name=u.name, kind=u.kind, hp=max(0, u.hp), max_hp=u.max_hp)
+            for u in (side.stickman, *side.entities)
+        ]
+
+    foe = "p2" if caster == "p1" else "p1"
+    return Roster(you=_units(caster), foe=_units(foe))
+
+
+def _resolve_ids(comp: EffectComponent, roster: Roster) -> None:
+    """Ground a component's source/target to real unit ids (invalid -> stickman).
+
+    The resolver never trusts a raw id; every reference is validated against the
+    live roster here. ``source`` is always a caster unit; ``target`` is a caster
+    unit for self-effects, else an opponent unit.
+    """
+    caster = roster.caster_ids()
+    comp.source_id = comp.source_id if comp.source_id in caster else roster.caster_stickman()
+    if comp.target is ComponentTarget.caster:
+        comp.target_id = comp.target_id if comp.target_id in caster else roster.caster_stickman()
+    else:
+        opp = roster.opponent_ids()
+        comp.target_id = comp.target_id if comp.target_id in opp else roster.opponent_stickman()
+
+
+def normalize_components(
+    raw: list[Any], balance: BalanceConfig, roster: Roster | None = None
+) -> list[EffectComponent]:
     """Validate/clamp/cap the judge's raw component dicts into trusted components.
 
     Rules (DESIGN.md §3, plan rule 1): fill required-per-type defaults, clamp
     every numeric to its balance range, drop anything meaningless, enforce
     at most one instant-``damage`` component, and truncate to ``max_components``.
-    Returns [] when nothing survives (the caller then sputters).
+    When a ``roster`` is given, every source/target unit id is validated against
+    it (invalid -> the relevant stickman). Returns [] when nothing survives.
     """
     pmin, pmax = balance.component_power_min, balance.component_power_max
     dmax = balance.max_effect_duration
@@ -79,33 +116,28 @@ def normalize_components(raw: list[Any], balance: BalanceConfig) -> list[EffectC
         element = _as_enum(item.get("element"), Element, Element.physical)
         power = _clamp(_int(item.get("power"), 4), pmin, pmax)
         duration = _clamp(_int(item.get("duration"), 2), 1, dmax)
+        comp: EffectComponent | None = None
 
         if ctype is ComponentType.damage:
             if seen_damage:
                 continue  # at most one instant-damage component per bundle
             seen_damage = True
-            out.append(
-                EffectComponent(
-                    type=ctype, target=ComponentTarget.opponent, element=element, power=power
-                )
+            comp = EffectComponent(
+                type=ctype, target=ComponentTarget.opponent, element=element, power=power
             )
         elif ctype is ComponentType.heal:
-            out.append(EffectComponent(type=ctype, target=ComponentTarget.caster, power=power))
+            comp = EffectComponent(type=ctype, target=ComponentTarget.caster, power=power)
         elif ctype is ComponentType.dot:
-            out.append(
-                EffectComponent(
-                    type=ctype,
-                    target=ComponentTarget.opponent,
-                    element=element,
-                    power=power,
-                    duration=duration,
-                )
+            comp = EffectComponent(
+                type=ctype,
+                target=ComponentTarget.opponent,
+                element=element,
+                power=power,
+                duration=duration,
             )
         elif ctype is ComponentType.hot:
-            out.append(
-                EffectComponent(
-                    type=ctype, target=ComponentTarget.caster, power=power, duration=duration
-                )
+            comp = EffectComponent(
+                type=ctype, target=ComponentTarget.caster, power=power, duration=duration
             )
         elif ctype is ComponentType.stat:
             stat = _as_enum(item.get("stat"), StatKind, None)
@@ -113,35 +145,39 @@ def normalize_components(raw: list[Any], balance: BalanceConfig) -> list[EffectC
             if stat is None or magnitude == 0:
                 continue  # a stat shift with no stat or no magnitude is a no-op
             target = _as_enum(item.get("target"), ComponentTarget, ComponentTarget.opponent)
-            out.append(
-                EffectComponent(
-                    type=ctype, target=target, stat=stat, magnitude=magnitude, duration=duration
-                )
+            comp = EffectComponent(
+                type=ctype, target=target, stat=stat, magnitude=magnitude, duration=duration
             )
         elif ctype is ComponentType.defense:
             subtype = _as_enum(item.get("subtype"), DefenseSubtype, DefenseSubtype.shield)
-            out.append(
-                EffectComponent(
-                    type=ctype,
-                    target=ComponentTarget.caster,
-                    element=element,
-                    power=power,
-                    subtype=subtype,
-                )
+            comp = EffectComponent(
+                type=ctype,
+                target=ComponentTarget.caster,
+                element=element,
+                power=power,
+                subtype=subtype,
             )
         elif ctype is ComponentType.barrier:
-            out.append(
-                EffectComponent(
-                    type=ctype, target=ComponentTarget.caster, element=element, power=power
-                )
+            comp = EffectComponent(
+                type=ctype, target=ComponentTarget.caster, element=element, power=power
             )
         elif ctype is ComponentType.control:
             if seen_control:
                 continue  # at most one stun per bundle
             seen_control = True
             cdur = _clamp(_int(item.get("duration"), 1), 1, balance.max_control_duration)
-            out.append(EffectComponent(type=ctype, target=ComponentTarget.opponent, duration=cdur))
+            comp = EffectComponent(type=ctype, target=ComponentTarget.opponent, duration=cdur)
 
+        if comp is None:
+            continue
+        src, tid = item.get("source_id"), item.get("target_id")
+        comp.source_id = src if isinstance(src, str) else None
+        comp.target_id = tid if isinstance(tid, str) else None
+        out.append(comp)
+
+    if roster is not None:
+        for c in out:
+            _resolve_ids(c, roster)
     return out
 
 

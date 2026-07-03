@@ -15,8 +15,16 @@ from typing import Any
 from anthropic import Anthropic
 
 from app.config import BalanceConfig
-from app.judge_prompt import EMIT_ACTION_TOOL, JUDGE_SYSTEM
-from app.models import Action, ComponentTarget, ComponentType, EffectComponent, Element, Template
+from app.judge_prompt import EMIT_ACTION_TOOL, JUDGE_SYSTEM, render_roster
+from app.models import (
+    Action,
+    ComponentTarget,
+    ComponentType,
+    EffectComponent,
+    Element,
+    Roster,
+    Template,
+)
 from app.rules import normalize_components
 from app.settings import get_settings
 
@@ -48,14 +56,17 @@ def _sputter() -> Action:
     )
 
 
-def _action_from_tool_input(data: dict[str, Any], balance: BalanceConfig) -> Action:
+def _action_from_tool_input(
+    data: dict[str, Any], balance: BalanceConfig, roster: Roster | None
+) -> Action:
     """Build a validated Action from the judge's permissive tool input.
 
-    The component list is normalized (validated/clamped/capped); if nothing
-    survives we sputter so a turn is never structurally impossible.
+    The component list is normalized (validated/clamped/capped; unit ids grounded
+    against the roster); if nothing survives we sputter so a turn is never
+    structurally impossible.
     """
     raw = data.get("components")
-    components = normalize_components(raw if isinstance(raw, list) else [], balance)
+    components = normalize_components(raw if isinstance(raw, list) else [], balance, roster)
     if not components:
         return _sputter()
 
@@ -80,7 +91,10 @@ def _action_from_tool_input(data: dict[str, Any], balance: BalanceConfig) -> Act
     )
 
 
-def _judge_once(client: Anthropic, prompt: str, balance: BalanceConfig) -> Action:
+def _judge_once(
+    client: Anthropic, prompt: str, balance: BalanceConfig, roster: Roster | None
+) -> Action:
+    content = f"{render_roster(roster)}\n\nPLAYER PROMPT: {prompt}" if roster else prompt
     response = client.messages.create(
         model=balance.judge_model,
         max_tokens=_MAX_TOKENS,
@@ -88,20 +102,26 @@ def _judge_once(client: Anthropic, prompt: str, balance: BalanceConfig) -> Actio
         system=JUDGE_SYSTEM,
         tools=[EMIT_ACTION_TOOL],
         tool_choice={"type": "tool", "name": "emit_action"},
-        messages=[{"role": "user", "content": prompt}],
+        messages=[{"role": "user", "content": content}],
     )
     for block in response.content:
         if block.type == "tool_use" and block.name == "emit_action":
-            return _action_from_tool_input(dict(block.input), balance)
+            return _action_from_tool_input(dict(block.input), balance, roster)
     raise ValueError("judge response contained no emit_action tool call")
 
 
-def judge(prompt: str, balance: BalanceConfig, *, client: Anthropic | None = None) -> Action:
+def judge(
+    prompt: str,
+    balance: BalanceConfig,
+    *,
+    roster: Roster | None = None,
+    client: Anthropic | None = None,
+) -> Action:
     """Classify a freeform prompt into one Action bundle. Never raises."""
     client = client or _build_client()
     for attempt in (1, 2):
         try:
-            return _judge_once(client, prompt, balance)
+            return _judge_once(client, prompt, balance, roster)
         except Exception:  # noqa: BLE001 — any failure falls through to the sputter
             logger.warning("judge attempt %d failed", attempt, exc_info=True)
     return _sputter()

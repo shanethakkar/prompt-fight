@@ -47,7 +47,7 @@ const action: Action = {
       magnitude: null,
       duration: null,
       stat: null,
-      subtype: null,
+      subtype: null, source_id: null, target_id: null,
     },
   ],
   element: "fire",
@@ -112,7 +112,7 @@ describe("describeAction", () => {
       ...action,
       components: [
         action.components[0],
-        { type: "dot", target: "opponent", element: "nature", power: 5, magnitude: null, duration: 3, stat: null, subtype: null },
+        { type: "dot", target: "opponent", element: "nature", power: 5, magnitude: null, duration: 3, stat: null, subtype: null , source_id: null, target_id: null },
       ],
     };
     const text = describeAction(bundle);

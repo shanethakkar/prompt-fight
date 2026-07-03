@@ -25,6 +25,14 @@ def _side(name: str, hp: int, mana: int = 12) -> SideState:
     return SideState(name=name, mana=mana, stickman=Unit(id="s", name=name, hp=hp, max_hp=100))
 
 
+def _judge_state(mana: int = 12, cooldowns: dict | None = None) -> dict:
+    """A serialized battlefield for /api/judge with the active side's mana/cooldowns."""
+    gs = GameState(p1=_side("P1", 100, mana), p2=_side("P2", 100))
+    d = gs.model_dump(mode="json")
+    d["p1"]["cooldowns"] = cooldowns or {}
+    return d
+
+
 def _fireball() -> Action:
     return Action(
         components=[
@@ -54,7 +62,7 @@ def _heal() -> Action:
 
 @pytest.fixture
 def mock_judge(monkeypatch):
-    monkeypatch.setattr("app.main.judge", lambda prompt, balance: _fireball())
+    monkeypatch.setattr("app.main.judge", lambda prompt, balance, roster=None: _fireball())
 
 
 # ---- /api/judge -------------------------------------------------------------
@@ -65,7 +73,7 @@ def test_judge_success(mock_judge):
         "/api/judge",
         json={
             "prompt": "I hurl a fireball",
-            "player": {"mana": 10, "cooldowns": {}},
+            "state": _judge_state(10),
             "match_id": "m1",
             "rewrites_remaining": 2,
         },
@@ -83,7 +91,7 @@ def test_judge_success(mock_judge):
 def test_judge_unaffordable(mock_judge):
     r = client.post(
         "/api/judge",
-        json={"prompt": "fireball", "player": {"mana": 5, "cooldowns": {}}, "match_id": "m1"},
+        json={"prompt": "fireball", "state": _judge_state(5), "match_id": "m1"},
     )
     body = r.json()
     assert body["affordable"] is False
@@ -91,12 +99,12 @@ def test_judge_unaffordable(mock_judge):
 
 
 def test_judge_reports_cooldown(monkeypatch):
-    monkeypatch.setattr("app.main.judge", lambda prompt, balance: _heal())
+    monkeypatch.setattr("app.main.judge", lambda prompt, balance, roster=None: _heal())
     r = client.post(
         "/api/judge",
         json={
             "prompt": "heal me",
-            "player": {"mana": 10, "cooldowns": {"heal": 1}},
+            "state": _judge_state(10, {"heal": 1}),
             "match_id": "m1",
         },
     )
@@ -104,7 +112,7 @@ def test_judge_reports_cooldown(monkeypatch):
 
 
 def test_judge_moderation_reject(monkeypatch):
-    def _boom(prompt, balance):
+    def _boom(prompt, balance, roster=None):
         raise AssertionError("judge should not be called on a rejected prompt")
 
     monkeypatch.setattr("app.main.judge", _boom)
@@ -112,7 +120,7 @@ def test_judge_moderation_reject(monkeypatch):
         "/api/judge",
         json={
             "prompt": "kill yourself",
-            "player": {"mana": 10, "cooldowns": {}},
+            "state": _judge_state(10),
             "match_id": "m1",
             "rewrites_remaining": 2,
         },

@@ -69,6 +69,8 @@ export interface EffectComponent {
   duration: number | null;
   stat: StatKind | null;
   subtype: DefenseSubtype | null;
+  source_id: string | null;
+  target_id: string | null;
 }
 
 export interface Action {
@@ -180,14 +182,10 @@ export interface MatchConfig {
 
 // ---- API request/response shapes -------------------------------------------
 
-export interface PlayerSnapshot {
-  mana: number;
-  cooldowns: Record<string, number>;
-}
-
 export interface JudgeRequest {
   prompt: string;
-  player: PlayerSnapshot;
+  // The full battlefield — the judge is stateful (resolves unit references).
+  state: GameState;
   match_id: string;
   rewrites_remaining?: number;
 }

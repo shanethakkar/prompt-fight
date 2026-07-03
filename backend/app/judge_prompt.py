@@ -15,6 +15,7 @@ from app.models import (
     ComponentType,
     DefenseSubtype,
     Element,
+    Roster,
     Shape,
     Size,
     StatKind,
@@ -111,6 +112,14 @@ BUNDLES (multiple effects in one prompt — this is encouraged now)
 "I put on plate armor and draw my sword" -> [stat damage_taken -4 self] + [damage p5]
 Cap at 3. A prompt asking for 8 effects still yields at most the 3 most prominent.
 
+TARGETING (a BATTLEFIELD roster is given before each prompt)
+Each side has a stickman (its hero) plus any summoned units, each with an id. Set \
+`source_id` = which of YOUR units performs the component (default your stickman) and \
+`target_id` = the unit it lands on, using the ids shown. Only reference units that \
+EXIST on the battlefield — never invent an id or act through a unit you don't have. \
+If a prompt names no unit, leave the ids off and it defaults to the stickmen. damage/ \
+dot/control hit an ENEMY unit; heal/hot/defense/barrier land on one of YOUR units.
+
 EXAMPLES
 "I hurl a massive fireball" -> [damage fire power 6], element fire, speed 6, \
 template projectile, "A roaring fireball screams across the arena!"
@@ -148,6 +157,14 @@ _COMPONENT_SCHEMA: dict = {
             "type": "string",
             "enum": _values(ComponentTarget),
             "description": "'self' or 'opponent'. damage/dot hit opponent; heal/defense are self.",
+        },
+        "source_id": {
+            "type": "string",
+            "description": "Id of YOUR unit performing this (default your stickman). Must exist.",
+        },
+        "target_id": {
+            "type": "string",
+            "description": "Id of the unit this lands on (from the battlefield). Must exist.",
         },
         "element": {"type": "string", "enum": _values(Element)},
         "power": {
@@ -234,3 +251,14 @@ EMIT_ACTION_TOOL: dict = {
         "required": ["components", "element", "speed", "flavor_text"],
     },
 }
+
+
+def render_roster(roster: Roster) -> str:
+    """Render the battlefield for the judge's user message (identity + rough HP only)."""
+
+    def _line(u) -> str:
+        return f'  {u.id} "{u.name}" ({u.kind}, {u.hp}/{u.max_hp} hp)'
+
+    you = "\n".join(_line(u) for u in roster.you) or "  (none)"
+    foe = "\n".join(_line(u) for u in roster.foe) or "  (none)"
+    return f"BATTLEFIELD (reference units by id):\nYOUR units:\n{you}\nENEMY units:\n{foe}"

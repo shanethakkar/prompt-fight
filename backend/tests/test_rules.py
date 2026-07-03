@@ -13,9 +13,12 @@ from app.models import (
     EffectComponent,
     EffectKind,
     Element,
+    Roster,
+    RosterUnit,
     StatKind,
 )
 from app.rules import (
+    build_roster,
     bundle_cost,
     damage_taken_mult,
     effective_power,
@@ -306,3 +309,39 @@ def test_damage_taken_mult_neutral_when_no_armor():
 )
 def test_type_multiplier(attacker, defender, expected):
     assert type_multiplier(Element(attacker), Element(defender), BAL) == expected
+
+
+# ---------------------------------------------------------------------------
+# Roster building + unit-id validation (P3.1a)
+# ---------------------------------------------------------------------------
+
+
+def _roster():
+    return Roster(
+        you=[RosterUnit(id="p1s", name="Ada", kind="stickman", hp=100, max_hp=100)],
+        foe=[RosterUnit(id="p2s", name="Bo", kind="stickman", hp=100, max_hp=100)],
+    )
+
+
+def test_normalize_grounds_invalid_ids_to_stickman():
+    out = normalize_components(
+        [{"type": "damage", "power": 5, "source_id": "bogus", "target_id": "nope"}], BAL, _roster()
+    )
+    assert out[0].source_id == "p1s" and out[0].target_id == "p2s"
+
+
+def test_normalize_keeps_a_valid_target_id():
+    out = normalize_components([{"type": "damage", "power": 5, "target_id": "p2s"}], BAL, _roster())
+    assert out[0].target_id == "p2s"
+
+
+def test_normalize_without_roster_leaves_ids_none():
+    out = normalize_components([{"type": "damage", "power": 5}], BAL)
+    assert out[0].source_id is None and out[0].target_id is None
+
+
+def test_build_roster_you_is_the_caster():
+    from app.resolver import initial_game
+
+    r = build_roster(initial_game(BAL), "p2")
+    assert r.caster_stickman() == "p2s" and r.opponent_stickman() == "p1s"
