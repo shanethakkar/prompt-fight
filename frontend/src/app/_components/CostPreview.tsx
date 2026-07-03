@@ -1,6 +1,15 @@
 import type { JudgeResponse } from "@/lib/types";
 import { canConfirm, canRewrite, describeComponent, elementColor } from "@/lib/game";
 
+// Reliability tiers, ordered best -> worst for the odds bar. [key, bar, label, text]
+const ODDS_TIERS: [string, string, string, string][] = [
+  ["full", "bg-emerald-500", "Full", "text-emerald-400"],
+  ["overload", "bg-amber-400", "Crit", "text-amber-300"],
+  ["partial", "bg-sky-500", "Partial", "text-sky-300"],
+  ["miss", "bg-zinc-500", "Miss", "text-zinc-400"],
+  ["backfire", "bg-rose-500", "Backfire", "text-rose-400"],
+];
+
 export function CostPreview({
   res,
   rewritesRemaining,
@@ -18,6 +27,10 @@ export function CostPreview({
   const confirmable = sandbox || canConfirm(res, rewritesRemaining);
   const rewritable = canRewrite(rewritesRemaining);
   const forced = !sandbox && rewritesRemaining <= 0;
+
+  const odds = res.success_odds ?? null;
+  // Show the odds readout only when the outcome is actually uncertain (competitive).
+  const hasRisk = !!odds && Object.entries(odds).some(([k, v]) => k !== "full" && v > 0.0005);
 
   return (
     <div className="flex w-full max-w-lg flex-col gap-4">
@@ -44,6 +57,30 @@ export function CostPreview({
           )}
           {res.on_cooldown && <span className="text-rose-400">On cooldown</span>}
         </div>
+
+        {hasRisk && odds && (
+          <div className="mt-3">
+            <div className="mb-1 text-xs text-zinc-400">Success odds</div>
+            <div className="flex h-2 w-full overflow-hidden rounded-full bg-zinc-800">
+              {ODDS_TIERS.map(([key, bar]) => {
+                const pct = (odds[key] ?? 0) * 100;
+                return pct > 0 ? (
+                  <div key={key} className={bar} style={{ width: `${pct}%` }} />
+                ) : null;
+              })}
+            </div>
+            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
+              {ODDS_TIERS.map(([key, , label, text]) => {
+                const pct = Math.round((odds[key] ?? 0) * 100);
+                return pct > 0 ? (
+                  <span key={key} className={text}>
+                    {label} {pct}%
+                  </span>
+                ) : null;
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="flex items-center gap-3">

@@ -110,6 +110,9 @@ class Outcome(StrEnum):
     ticked = "ticked"  # an over-time effect fired at start of turn
     shattered = "shattered"  # a barrier's pool was fully depleted
     fizzled = "fizzled"  # component did nothing (e.g. cost/validation dropped it)
+    missed = "missed"  # P1 reliability: the action whiffed (roll or evade)
+    overload = "overload"  # P1 reliability: a crit — landed harder than intended
+    backfired = "backfired"  # P1 reliability: an overreach rebounded on the caster
 
 
 class Shape(StrEnum):
@@ -397,6 +400,7 @@ class EffectSummary(BaseModel):
     barrier_absorbed: int | None = None  # damage soaked by a durability pool
     barrier_remaining: int | None = None  # pool left after this hit
     effectiveness: str | None = None  # matchup tier if not neutral (P3.3)
+    reliability: str | None = None  # P1 roll tier if not a clean full hit
     label: str = ""
 
 

@@ -171,6 +171,26 @@ describe("narrateResult", () => {
       narrateResult(ev({ kind: "damage", outcome: "reflected", target: "p1", amount: 9, effect: { kind: "reflect" } }), NAMES),
     ).toBe("Reflected! 9 bounces back at Ada.");
   });
+  it("narrates a reliability miss", () => {
+    expect(
+      narrateResult(ev({ kind: "damage", outcome: "missed", amount: 0, effect: { kind: "damage", reliability: "miss" } }), NAMES),
+    ).toBe("Ada's attack misses Bo.");
+  });
+  it("narrates an overload crit", () => {
+    expect(
+      narrateResult(ev({ kind: "damage", outcome: "overload", amount: 27, effect: { kind: "damage", reliability: "overload" } }), NAMES),
+    ).toBe("💥 Overload! Ada crits Bo for 27.");
+  });
+  it("narrates a backfire onto the caster", () => {
+    expect(
+      narrateResult(ev({ kind: "damage", outcome: "backfired", target: "p1", amount: 6, effect: { kind: "damage", reliability: "backfire" } }), NAMES),
+    ).toBe("Ada's overreach backfires — 6 rebounds on Ada!");
+  });
+  it("narrates a glancing (reliability-partial) hit", () => {
+    expect(
+      narrateResult(ev({ kind: "damage", outcome: "partial", amount: 9, effect: { kind: "damage", reliability: "partial" } }), NAMES),
+    ).toBe("A glancing hit — 9 to Bo.");
+  });
   it("narrates a poison tick at start of turn", () => {
     expect(
       narrateResult(ev({ kind: "dot_tick", target: "p2", amount: 5, effect: { kind: "dot", label: "poison" } }), NAMES),

@@ -14,10 +14,12 @@ deterministic and unit-testable. This module owns three jobs:
 from __future__ import annotations
 
 import math
+import random
 from typing import Any
 
 from app.config import BalanceConfig
 from app.models import (
+    Action,
     ActiveEffect,
     ComponentTarget,
     ComponentType,
@@ -30,6 +32,7 @@ from app.models import (
     Roster,
     RosterUnit,
     Side,
+    SideState,
     StatKind,
 )
 
@@ -257,6 +260,104 @@ def _ground_effectiveness(comp: EffectComponent, roster: Roster) -> None:
 
 def effectiveness_mult(tier: Effectiveness, balance: BalanceConfig) -> float:
     return balance.effectiveness_multipliers.get(tier.value, 1.0)
+
+
+# ---------------------------------------------------------------------------
+# Reliability (P1) — Aptitude x Ambition, competitive mode only
+# ---------------------------------------------------------------------------
+
+_OFFENSIVE = (ComponentType.damage, ComponentType.dot)
+_TIER_ORDER = ("miss", "partial", "full", "overload", "backfire")
+
+
+def _clampf(value: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, value))
+
+
+def _resolve_unit(side: SideState, unit_id: str | None):  # noqa: ANN202 (Unit)
+    if unit_id is not None:
+        for u in [side.stickman, *side.entities]:
+            if u.id == unit_id:
+                return u
+    return side.stickman
+
+
+def reach(components: list[EffectComponent], balance: BalanceConfig) -> float:
+    """Ambition score: the biggest offensive power + a step per extra component."""
+    powers = [c.power or 0 for c in components if c.type in _OFFENSIVE]
+    if not powers:
+        return 0.0
+    return max(powers) + balance.reliability.reach_component_step * (len(components) - 1)
+
+
+def _competence(components: list[EffectComponent]) -> str:
+    """P1.1 stub — every actor is 'fit'. P1.2 grounds real aptitude per source."""
+    return "fit"
+
+
+def _evade_chance(action: Action, state: GameState, balance: BalanceConfig) -> float:
+    """A defender's dodge stance, folded into the attacker's odds (this replaces
+    the deterministic dodge in competitive mode)."""
+    rc = balance.reliability
+    off = [c for c in action.components if c.type in _OFFENSIVE]
+    if not off:
+        return 0.0
+    defender = state.p2 if state.active == "p1" else state.p1
+    target = _resolve_unit(defender, off[0].target_id)
+    stance = next(
+        (
+            e
+            for e in target.effects
+            if e.kind is EffectKind.defense and e.subtype is DefenseSubtype.dodge
+        ),
+        None,
+    )
+    if stance is None:
+        return 0.0
+    edge = rc.evade_base + rc.evade_speed_step * (stance.speed - action.speed)
+    return _clampf(edge, 0.0, rc.evade_cap)
+
+
+def success_odds(action: Action, state: GameState, balance: BalanceConfig) -> dict[str, float]:
+    """Outcome distribution over miss/partial/full/overload/backfire — a pure
+    function so the /api/judge preview and the resolver's seeded roll agree.
+    Sandbox and non-offensive actions always land full."""
+    if state.mode != "competitive" or not any(c.type in _OFFENSIVE for c in action.components):
+        return {"full": 1.0}
+    rc = balance.reliability
+    comp = _competence(action.components)
+    reach_val = reach(action.components, balance)
+    over = max(0.0, reach_val - rc.free_reach)
+    base = _clampf(rc.competence_base[comp] - rc.ambition_slope * over, rc.reliability_floor, 1.0)
+    crit = min(
+        rc.crit_cap, (rc.crit_base + rc.crit_reach_bonus * over) * rc.competence_crit_scale[comp]
+    )
+    crit = min(crit, base)
+    shortfall = 1.0 - base
+    partial = rc.partial_share * shortfall
+    miss = shortfall - partial
+    backfire = rc.backfire_share * miss if reach_val >= rc.backfire_reach else 0.0
+    miss -= backfire
+    full = base - crit
+    evade = _evade_chance(action, state, balance)
+    if evade > 0.0:
+        moved = evade * (full + crit)
+        full *= 1.0 - evade
+        crit *= 1.0 - evade
+        miss += moved * rc.dodge_miss_share
+        partial += moved * (1.0 - rc.dodge_miss_share)
+    return {"miss": miss, "partial": partial, "full": full, "overload": crit, "backfire": backfire}
+
+
+def roll_outcome(odds: dict[str, float], rng: random.Random) -> str:
+    """Sample one outcome tier from a success_odds distribution."""
+    r = rng.random() * max(sum(odds.values()), 1e-9)
+    cumulative = 0.0
+    for tier in _TIER_ORDER:
+        cumulative += odds.get(tier, 0.0)
+        if r < cumulative:
+            return tier
+    return "full"
 
 
 def _enforce_combo_caps(

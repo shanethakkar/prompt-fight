@@ -18,7 +18,7 @@ from app.judge import judge
 from app.models import ResolveResult
 from app.moderation import moderate
 from app.resolver import initial_game, resolve_turn
-from app.rules import build_roster, bundle_cost, kind_cooldowns
+from app.rules import build_roster, bundle_cost, kind_cooldowns, success_odds
 from app.schemas import (
     JudgeRequest,
     JudgeResponse,
@@ -92,11 +92,15 @@ def api_judge(req: JudgeRequest) -> JudgeResponse:
     cost = bundle_cost(action.components, balance)
     pending_cds = kind_cooldowns(action.components, balance)
     on_cooldown = any(active_side.cooldowns.get(kind, 0) > 0 for kind in pending_cds)
+    # Informed odds (P1): the same pure function the resolver rolls against, so the
+    # preview is honest. Sandbox / non-offensive -> {"full": 1.0}.
+    odds = success_odds(action, req.state, balance)
     return JudgeResponse(
         action=action,
         mana_cost=cost,
         affordable=active_side.mana >= cost,
         on_cooldown=on_cooldown,
+        success_odds=odds,
         rewrites_remaining=rewrites_after,
     )
 

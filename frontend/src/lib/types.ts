@@ -47,7 +47,10 @@ export type Outcome =
   | "applied"
   | "ticked"
   | "shattered"
-  | "fizzled";
+  | "fizzled"
+  | "missed"
+  | "overload"
+  | "backfired";
 
 export type Shape = "circle" | "rect" | "triangle" | "line" | "zigzag" | "ring" | "star";
 
@@ -175,6 +178,7 @@ export interface EffectSummary {
   barrier_absorbed?: number | null;
   barrier_remaining?: number | null;
   effectiveness?: string | null;
+  reliability?: string | null; // P1 roll tier if not a clean full hit
   label?: string;
 }
 
@@ -227,6 +231,7 @@ export interface JudgeResponse {
   mana_cost: number | null;
   affordable: boolean | null;
   on_cooldown: boolean | null;
+  success_odds?: Record<string, number> | null; // P1 informed odds (competitive)
   error: string | null;
   message: string | null;
   rewrites_remaining: number;

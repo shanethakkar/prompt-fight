@@ -53,9 +53,14 @@ def player(hp=100, mana=10, name="P", cooldowns=None, effects=None):
     )
 
 
-def state(p1=None, p2=None, active="p1", round=1):
+def state(p1=None, p2=None, active="p1", round=1, mode="sandbox", seed=0):
     return GameState(
-        round=round, active=active, p1=p1 or player(name="P1"), p2=p2 or player(name="P2")
+        round=round,
+        active=active,
+        mode=mode,
+        seed=seed,
+        p1=p1 or player(name="P1"),
+        p2=p2 or player(name="P2"),
     )
 
 
@@ -801,3 +806,85 @@ def test_resisted_reduces_damage():
         state(active="p1"), action({"type": "damage", "power": 5, "effectiveness": "resisted"})
     )
     assert r.state.p2.stickman.hp == 100 - 6  # round(15 * 0.4)
+
+
+# ---------------------------------------------------------------------------
+# Reliability roll (P1): competitive-only tier handling + determinism
+# ---------------------------------------------------------------------------
+
+
+def _force_tier(monkeypatch, tier):
+    monkeypatch.setattr("app.resolver.roll_outcome", lambda odds, rng: tier)
+
+
+def test_sandbox_ignores_the_reliability_roll(monkeypatch):
+    # A forced "miss" is ignored in sandbox — the roll only runs in competitive.
+    _force_tier(monkeypatch, "miss")
+    r = turn(state(active="p1", mode="sandbox"), action(DMG6))
+    assert r.state.p2.stickman.hp == 82  # normal 18 damage, roll skipped
+
+
+def test_competitive_full_hits_normally(monkeypatch):
+    _force_tier(monkeypatch, "full")
+    r = turn(state(active="p1", mode="competitive"), action(DMG6))
+    assert r.state.p2.stickman.hp == 82  # 18
+
+
+def test_competitive_miss_deals_nothing(monkeypatch):
+    _force_tier(monkeypatch, "miss")
+    r = turn(state(active="p1", mode="competitive"), action(DMG6))
+    assert r.state.p2.stickman.hp == 100
+    assert r.events[0].outcome == Outcome.missed
+
+
+def test_competitive_partial_halves(monkeypatch):
+    _force_tier(monkeypatch, "partial")
+    r = turn(state(active="p1", mode="competitive"), action(DMG6))
+    assert r.state.p2.stickman.hp == 91  # round(18 * 0.5) = 9
+    assert r.events[0].outcome == Outcome.partial
+
+
+def test_competitive_overload_crits(monkeypatch):
+    _force_tier(monkeypatch, "overload")
+    r = turn(state(active="p1", mode="competitive"), action(DMG6))
+    assert r.state.p2.stickman.hp == 100 - 27  # 18 * 1.5
+    assert r.events[0].outcome == Outcome.overload
+    assert r.events[0].effect.reliability == "overload"
+
+
+def test_competitive_backfire_rebounds_on_caster(monkeypatch):
+    _force_tier(monkeypatch, "backfire")
+    r = turn(state(active="p1", mode="competitive"), action(DMG6))
+    assert r.state.p1.stickman.hp == 94  # round(18 * 0.35) = 6 on the caster
+    assert r.state.p2.stickman.hp == 100  # opponent untouched
+    assert r.events[0].outcome == Outcome.backfired
+
+
+def test_competitive_miss_leaves_stance_unconsumed(monkeypatch):
+    _force_tier(monkeypatch, "miss")
+    st = state(p2=player(name="P2", effects=[stance(power=4)]), active="p1", mode="competitive")
+    r = turn(st, action(DMG6))
+    # a whiff must not eat the defender's shield
+    assert any(e.kind is EffectKind.defense for e in r.state.p2.stickman.effects)
+
+
+def test_competitive_dodge_is_probabilistic(monkeypatch):
+    # A forced "full" still lands through a dodge stance — evasion lives in the
+    # roll now, not the old deterministic speed check.
+    _force_tier(monkeypatch, "full")
+    st = state(
+        p2=player(name="P2", effects=[stance(subtype="dodge", speed=9)]),
+        active="p1",
+        mode="competitive",
+    )
+    r = turn(st, action(DMG6))
+    assert r.state.p2.stickman.hp == 82  # full 18 despite the dodge stance
+
+
+def test_competitive_roll_is_deterministic():
+    # Same seed + state + action -> identical outcome (replayable), no monkeypatch.
+    a = action(DMG6)
+    r1 = turn(state(active="p1", mode="competitive", seed=1234), a)
+    r2 = turn(state(active="p1", mode="competitive", seed=1234), a)
+    assert r1.events[0].outcome == r2.events[0].outcome
+    assert r1.state.p2.stickman.hp == r2.state.p2.stickman.hp

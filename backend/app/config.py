@@ -68,6 +68,44 @@ class KindCooldowns(BaseModel):
     control: int
 
 
+class ReliabilityConfig(BaseModel):
+    """P1 reliability roll (competitive mode only). Reliability = Aptitude
+    (competence) throttled by Ambition (reach); see GAME_MECHANICS §7b."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Outcome tier -> damage multiplier for the rolled action.
+    multipliers: dict[str, float]  # miss / partial / full / overload
+    # Per competence tier (fit / improvised / unfit): base P(full-or-better),
+    # how much of the success mass can crit, and the power the hit lands at.
+    # improvised/unfit are exercised once P1.2 grounds real aptitude.
+    competence_base: dict[str, float]
+    competence_crit_scale: dict[str, float]
+    competence_power_mult: dict[str, float]
+    # Ambition: reach = max offensive power + step*(extra components); no penalty
+    # below free_reach, then -slope in reliability per point over it.
+    reach_component_step: float
+    free_reach: float
+    ambition_slope: float
+    reliability_floor: float
+    # Crit (overload) share of the success mass; grows with reach over free_reach.
+    crit_base: float
+    crit_reach_bonus: float
+    crit_cap: float
+    # Downside split (partial vs miss) + backfire (rebounds on the caster) carved
+    # from the miss mass once reach hits backfire_reach.
+    partial_share: float
+    backfire_share: float
+    backfire_reach: float
+    backfire_self_fraction: float
+    # Defender dodge-stance evasion, folded into the roll (replaces the old
+    # deterministic dodge in competitive mode).
+    evade_base: float
+    evade_speed_step: float
+    evade_cap: float
+    dodge_miss_share: float
+
+
 class BalanceConfig(BaseModel):
     """Fully-typed mirror of config/balance.json.
 
@@ -128,6 +166,8 @@ class BalanceConfig(BaseModel):
 
     effectiveness_multipliers: dict[str, float]
     offense_mult_ceil: float
+
+    reliability: ReliabilityConfig
 
     defense_stance_duration_turns: int
 

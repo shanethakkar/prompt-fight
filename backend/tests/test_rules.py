@@ -6,6 +6,7 @@ from __future__ import annotations
 import pytest
 from app.config import load_balance
 from app.models import (
+    Action,
     ActiveEffect,
     ComponentTarget,
     ComponentType,
@@ -13,9 +14,13 @@ from app.models import (
     EffectComponent,
     EffectKind,
     Element,
+    GameState,
     Roster,
     RosterUnit,
+    SideState,
     StatKind,
+    Template,
+    Unit,
 )
 from app.rules import (
     build_roster,
@@ -25,6 +30,9 @@ from app.rules import (
     effective_speed,
     kind_cooldowns,
     normalize_components,
+    reach,
+    roll_outcome,
+    success_odds,
     type_multiplier,
 )
 
@@ -504,3 +512,99 @@ def test_effectiveness_needs_a_specially_equipped_attacker():
         r,
     )
     assert out[0].effectiveness is Effectiveness.neutral
+
+
+# ---------------------------------------------------------------------------
+# Reliability odds (P1) — pure reach / success_odds / roll_outcome
+# ---------------------------------------------------------------------------
+
+
+def _cstate(mode="competitive", dodge_speed=None):
+    eff = []
+    if dodge_speed is not None:
+        eff = [
+            ActiveEffect(
+                kind=EffectKind.defense,
+                turns_remaining=1,
+                source="p2",
+                subtype=DefenseSubtype.dodge,
+                speed=dodge_speed,
+            )
+        ]
+    return GameState(
+        round=1,
+        active="p1",
+        mode=mode,
+        seed=0,
+        p1=SideState(name="P1", mana=99, stickman=Unit(id="p1s", name="P1", hp=100, max_hp=100)),
+        p2=SideState(
+            name="P2", mana=99, stickman=Unit(id="p2s", name="P2", hp=100, max_hp=100, effects=eff)
+        ),
+    )
+
+
+def _atk(power, fillers=0, speed=5):
+    comps = [
+        EffectComponent(type=ComponentType.damage, target=ComponentTarget.opponent, power=power)
+    ]
+    comps += [
+        EffectComponent(type=ComponentType.hot, target=ComponentTarget.caster, power=3, duration=2)
+        for _ in range(fillers)
+    ]
+    return Action(
+        components=comps,
+        element=Element.physical,
+        speed=speed,
+        template=Template.projectile,
+        flavor_text="x",
+    )
+
+
+def test_reach_scales_with_power_and_component_count():
+    assert reach(_atk(6).components, BAL) == 6.0
+    assert reach(_atk(8, fillers=2).components, BAL) == 8 + BAL.reliability.reach_component_step * 2
+
+
+def test_success_odds_sandbox_and_non_offensive_are_certain():
+    assert success_odds(_atk(10, 3), _cstate(mode="sandbox"), BAL) == {"full": 1.0}
+    heal = Action(
+        components=[
+            EffectComponent(type=ComponentType.heal, target=ComponentTarget.caster, power=6)
+        ],
+        element=Element.physical,
+        speed=5,
+        template=Template.heal_glow,
+        flavor_text="x",
+    )
+    assert success_odds(heal, _cstate(), BAL) == {"full": 1.0}
+
+
+@pytest.mark.parametrize("power,fillers", [(4, 0), (7, 0), (10, 3), (1, 0)])
+def test_success_odds_is_a_distribution(power, fillers):
+    o = success_odds(_atk(power, fillers), _cstate(), BAL)
+    assert abs(sum(o.values()) - 1.0) < 1e-9
+    assert all(v >= 0.0 for v in o.values())
+
+
+def test_modest_action_is_reliable_apocalypse_is_risky():
+    modest = success_odds(_atk(4), _cstate(), BAL)
+    apocalypse = success_odds(_atk(10, 3), _cstate(), BAL)
+    assert modest["full"] >= 0.9 and modest["backfire"] == 0.0
+    assert apocalypse["full"] < 0.55 and apocalypse["miss"] > 0 and apocalypse["backfire"] > 0
+
+
+def test_dodge_stance_lowers_hit_odds():
+    plain = success_odds(_atk(10, 3), _cstate(), BAL)
+    dodged = success_odds(_atk(10, 3), _cstate(dodge_speed=9), BAL)
+    assert dodged["full"] < plain["full"] and dodged["miss"] > plain["miss"]
+
+
+def test_roll_outcome_certain_and_partitioned():
+    import random
+    from collections import Counter
+
+    assert roll_outcome({"full": 1.0}, random.Random(0)) == "full"
+    counts = Counter(
+        roll_outcome({"miss": 0.2, "full": 0.8}, random.Random(s)) for s in range(3000)
+    )
+    assert 0.15 < counts["miss"] / 3000 < 0.25

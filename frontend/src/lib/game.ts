@@ -172,6 +172,7 @@ export function narrateResult(e: ResolutionEvent, names: Record<Side, string>): 
     case "heal":
       return e.amount > 0 ? `${actor} recovers ${e.amount} HP.` : `${actor} is already at full health.`;
     case "dot":
+      if (e.outcome === "missed") return `${actor}'s ${eff?.label ?? "attack"} misses ${target}.`;
       return `${actor} afflicts ${target} with ${eff?.label ?? "an effect"} — ${eff?.per_turn}/turn for ${eff?.duration} turns.${effSuffix(eff)}`;
     case "hot":
       return `${actor} starts regenerating — ${eff?.per_turn}/turn for ${eff?.duration} turns.`;
@@ -217,6 +218,9 @@ function narrateDamage(e: ResolutionEvent, actor: string, target: string): strin
       }
       return `${target} blocks it${eff?.absorbed ? ` (absorbed ${eff.absorbed})` : ""} — no damage.`;
     case "partial": {
+      if (eff?.reliability === "partial") {
+        return `A glancing hit — ${e.amount} to ${target}${barrierTail}.`;
+      }
       const how =
         eff?.kind === "dodge"
           ? "grazes past the dodge"
@@ -229,6 +233,12 @@ function narrateDamage(e: ResolutionEvent, actor: string, target: string): strin
       return `${target} dodges it completely.`;
     case "reflected":
       return `Reflected! ${e.amount} bounces back at ${actor}${barrierTail}.`;
+    case "missed":
+      return `${actor}'s attack misses ${target}.`;
+    case "overload":
+      return `💥 Overload! ${actor} crits ${target} for ${e.amount}${barrierTail}.`;
+    case "backfired":
+      return `${actor}'s overreach backfires — ${e.amount} rebounds on ${actor}!`;
     default:
       return `${actor} hits ${target} for ${e.amount}.`;
   }

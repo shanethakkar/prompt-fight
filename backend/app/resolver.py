@@ -20,6 +20,7 @@ emit several playback beats.
 
 from __future__ import annotations
 
+import hashlib
 import random
 from typing import Literal
 
@@ -55,6 +56,8 @@ from app.rules import (
     effective_speed,
     effectiveness_mult,
     kind_cooldowns,
+    roll_outcome,
+    success_odds,
     type_multiplier,
 )
 
@@ -155,18 +158,22 @@ def _apply_damage(
     atk_power: int,
     atk_speed: int,
     eff_mult: float,
+    reliability_mult: float,
     stance_available: bool,
+    mode: GameMode,
     balance: BalanceConfig,
 ) -> tuple[Side, int, Outcome, EffectSummary | None]:
     """Resolve one instant-damage component through the pinned pipeline (rule 6):
 
-    raw -> ×effectiveness (matchup, always) -> ×type (only vs a stance element)
-    -> ×damage_taken (armor, always) -> flat stance block/dodge/reflect -> floor 0.
+    raw -> ×reliability (P1 roll) -> ×effectiveness (matchup, always) -> ×type
+    (only vs a stance element) -> ×damage_taken (armor) -> flat stance -> floor 0.
 
     ``stance_available`` is False once an earlier component in the bundle already
-    consumed the opponent's stance. Returns (target, damage, outcome, summary).
+    consumed the opponent's stance. In competitive mode a dodge stance is spent as
+    evasion inside the reliability roll, so it does not also block here. Returns
+    (target, damage, outcome, summary).
     """
-    raw = atk_power * balance.attack_damage_multiplier
+    raw = atk_power * balance.attack_damage_multiplier * reliability_mult
     dt_mult = damage_taken_mult(opponent.effects, balance)  # opponent's armor, always applies
     stance = _stance(opponent) if stance_available else None
 
@@ -190,6 +197,10 @@ def _apply_damage(
         return o_side, dmg, outcome, EffectSummary(kind="shield", absorbed=max(0, typed_i - dmg))
 
     if stance.subtype is DefenseSubtype.dodge:
+        if mode == "competitive":
+            # Evasion was already spent in the reliability roll; a hit that reached
+            # here beat the dodge and lands full.
+            return o_side, typed_i, Outcome.hit_knockback, None
         if stance.speed >= atk_speed:
             return o_side, 0, Outcome.dodged, EffectSummary(kind="dodge", absorbed=typed_i)
         dmg = max(0, round(typed * balance.partial_dodge_damage_fraction))
@@ -208,6 +219,20 @@ def _apply_damage(
     dmg = max(0, round(typed - absorb))
     outcome = Outcome.blocked if dmg == 0 else Outcome.partial
     return o_side, dmg, outcome, EffectSummary(kind="reflect", absorbed=max(0, typed_i - dmg))
+
+
+def _roll_rng(state: GameState, action: Action) -> random.Random:
+    """Deterministic per-turn RNG for the reliability roll. Derived (stably, via
+    sha256) from the match seed + turn nonce + a fingerprint of the action's
+    mechanics: the same state+action always reproduces, so replays match and
+    re-submitting the same action can't fish for a better roll."""
+    fingerprint = "|".join(
+        f"{c.type.value}:{c.source_id}:{c.target_id}:{c.power}:{c.magnitude}:{c.duration}"
+        for c in action.components
+    )
+    key = f"{state.seed}:{state.round}:{state.active}:{fingerprint}"
+    digest = hashlib.sha256(key.encode()).digest()
+    return random.Random(int.from_bytes(digest[:8], "big"))
 
 
 def resolve_turn(state: GameState, action: Action | None, balance: BalanceConfig) -> ResolveResult:
@@ -302,6 +327,12 @@ def resolve_turn(state: GameState, action: Action | None, balance: BalanceConfig
 
     # --- ACT: pay the aggregate cost, then apply each component to its unit(s).
     active_side.mana = max(0, active_side.mana - bundle_cost(components, balance))
+    # P1 reliability: one seeded roll per command (competitive only), applied to
+    # every offensive component. Sandbox always lands "full".
+    reliability_tier = "full"
+    if action is not None and components and ns.mode == "competitive":
+        reliability_tier = roll_outcome(success_odds(action, ns, balance), _roll_rng(ns, action))
+    reliability_mult = balance.reliability.multipliers.get(reliability_tier, 1.0)
     staged: list[tuple[str, ActiveEffect]] = []  # (unit_id, effect) installed post-tick
     staged_barriers: list[tuple[str, Barrier]] = []
     staged_summons: list[Unit] = []
@@ -371,31 +402,63 @@ def resolve_turn(state: GameState, action: Action | None, balance: BalanceConfig
             atk_power = effective_power(base, source_unit.effects)
             atk_speed = effective_speed(act_speed, source_unit.effects)
             e_mult = effectiveness_mult(c.effectiveness, balance)
-            tside, amount, outcome, summary = _apply_damage(
-                a_side,
-                o_side,
-                source_unit,
-                target_unit,
-                element,
-                atk_power,
-                atk_speed,
-                e_mult,
-                True,
-                balance,
-            )
-            hit_unit = source_unit if tside == a_side else target_unit  # reflect -> the attacker
-            target_side_key, ev_target_id, ev_target_name = tside, hit_unit.id, hit_unit.name
-            amount, absorbed, remaining, shatter = _absorb_through_barriers(hit_unit, amount)
-            if absorbed:
-                summary = summary or EffectSummary(kind="barrier")
-                summary.barrier_absorbed = absorbed
-                summary.barrier_remaining = remaining
-                if amount == 0:
-                    outcome = Outcome.blocked
-            if c.effectiveness is not Effectiveness.neutral:  # tag the beat for narration
-                summary = summary or EffectSummary(kind="damage")
-                summary.effectiveness = c.effectiveness.value
-            hit_unit.hp = max(0, hit_unit.hp - amount)
+
+            if reliability_tier == "miss":
+                # The attack whiffed (roll or defender evasion) — nothing lands and
+                # the opponent's stance is not consumed.
+                outcome, amount = Outcome.missed, 0
+                summary = EffectSummary(kind="damage", reliability="miss")
+            elif reliability_tier == "backfire":
+                # An overreach rebounds on the acting unit (reuses the barrier soak).
+                raw_full = atk_power * balance.attack_damage_multiplier
+                back = max(1, round(raw_full * balance.reliability.backfire_self_fraction))
+                back, absorbed, remaining, shatter = _absorb_through_barriers(source_unit, back)
+                source_unit.hp = max(0, source_unit.hp - back)
+                hit_unit = source_unit
+                target_side_key, ev_target_id, ev_target_name = (
+                    a_side,
+                    source_unit.id,
+                    source_unit.name,
+                )
+                outcome, amount = Outcome.backfired, back
+                summary = EffectSummary(kind="damage", reliability="backfire")
+                if absorbed:
+                    summary.barrier_absorbed = absorbed
+                    summary.barrier_remaining = remaining
+            else:
+                tside, amount, outcome, summary = _apply_damage(
+                    a_side,
+                    o_side,
+                    source_unit,
+                    target_unit,
+                    element,
+                    atk_power,
+                    atk_speed,
+                    e_mult,
+                    reliability_mult,
+                    True,
+                    ns.mode,
+                    balance,
+                )
+                hit_unit = source_unit if tside == a_side else target_unit  # reflect -> attacker
+                target_side_key, ev_target_id, ev_target_name = tside, hit_unit.id, hit_unit.name
+                amount, absorbed, remaining, shatter = _absorb_through_barriers(hit_unit, amount)
+                if absorbed:
+                    summary = summary or EffectSummary(kind="barrier")
+                    summary.barrier_absorbed = absorbed
+                    summary.barrier_remaining = remaining
+                    if amount == 0:
+                        outcome = Outcome.blocked
+                if c.effectiveness is not Effectiveness.neutral:  # tag the beat for narration
+                    summary = summary or EffectSummary(kind="damage")
+                    summary.effectiveness = c.effectiveness.value
+                if reliability_tier in ("overload", "partial") and amount > 0:
+                    summary = summary or EffectSummary(kind="damage")
+                    summary.reliability = reliability_tier
+                    outcome = (
+                        Outcome.overload if reliability_tier == "overload" else Outcome.partial
+                    )
+                hit_unit.hp = max(0, hit_unit.hp - amount)
 
         elif c.type is ComponentType.heal:
             before = target_unit.hp
@@ -405,10 +468,20 @@ def resolve_turn(state: GameState, action: Action | None, balance: BalanceConfig
             outcome, amount = Outcome.healed, target_unit.hp - before
             summary = EffectSummary(kind="heal", magnitude=amount)
 
+        elif c.type is ComponentType.dot and reliability_tier in ("miss", "backfire"):
+            # A whiffed/backfired command fails to plant the over-time effect.
+            outcome, amount = Outcome.missed, 0
+            summary = EffectSummary(
+                kind="dot", label=_dot_label(c.element), reliability=reliability_tier
+            )
+
         elif c.type is ComponentType.dot:
-            # effectiveness is baked in at application (the tick magnitude is frozen).
+            # effectiveness + the reliability tier are baked in at application (the
+            # tick magnitude is frozen at cast).
             e_mult = effectiveness_mult(c.effectiveness, balance)
-            per_turn = max(1, round((c.power or 0) * balance.dot_multiplier * e_mult))
+            per_turn = max(
+                1, round((c.power or 0) * balance.dot_multiplier * e_mult * reliability_mult)
+            )
             target_unit.effects.append(
                 ActiveEffect(
                     kind=EffectKind.dot,
@@ -427,6 +500,9 @@ def resolve_turn(state: GameState, action: Action | None, balance: BalanceConfig
                 effectiveness=None
                 if c.effectiveness is Effectiveness.neutral
                 else c.effectiveness.value,
+                reliability=reliability_tier
+                if reliability_tier in ("overload", "partial")
+                else None,
             )
 
         elif c.type is ComponentType.hot:

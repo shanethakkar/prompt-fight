@@ -70,6 +70,28 @@
   },
   "offense_mult_ceil": 2.5,
 
+  "reliability": {
+    "multipliers": { "miss": 0.0, "partial": 0.5, "full": 1.0, "overload": 1.5 },
+    "competence_base": { "fit": 0.97, "improvised": 0.75, "unfit": 0.45 },
+    "competence_crit_scale": { "fit": 1.0, "improvised": 0.5, "unfit": 0.1 },
+    "competence_power_mult": { "fit": 1.0, "improvised": 0.7, "unfit": 0.45 },
+    "reach_component_step": 1.5,
+    "free_reach": 6.0,
+    "ambition_slope": 0.05,
+    "reliability_floor": 0.15,
+    "crit_base": 0.04,
+    "crit_reach_bonus": 0.01,
+    "crit_cap": 0.25,
+    "partial_share": 0.65,
+    "backfire_share": 0.5,
+    "backfire_reach": 11.0,
+    "backfire_self_fraction": 0.35,
+    "evade_base": 0.25,
+    "evade_speed_step": 0.05,
+    "evade_cap": 0.75,
+    "dodge_miss_share": 0.5
+  },
+
   "defense_stance_duration_turns": 1,
 
   "kind_cooldowns_turns": {

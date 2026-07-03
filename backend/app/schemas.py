@@ -30,6 +30,9 @@ class JudgeResponse(BaseModel):
     affordable: bool | None = None
     # True if any component-kind in the bundle is currently on cooldown.
     on_cooldown: bool | None = None
+    # P1: the reliability outcome distribution (miss/partial/full/overload/backfire)
+    # for the informed-odds preview. Omitted in sandbox / for non-offensive actions.
+    success_odds: dict[str, float] | None = None
     error: str | None = None
     message: str | None = None
     rewrites_remaining: int
