@@ -57,4 +57,4 @@ npm run lint && npm run typecheck
 
 - Resolver changes → resolver unit tests pass.
 - Any change to `JUDGE.md`, the judge system prompt, or judge-adjacent code → full judge eval suite passes (temperature=0).
-- Anti-stacking fixtures (greedy multi-request prompts) must always yield exactly one effect.
+- Anti-stacking fixtures (greedy multi-request prompts) must respect the component caps: at most `max_components` per bundle and at most **one `damage` per source unit** (a single-unit command still yields one attack). `normalize_components` enforces this server-side.

@@ -42,8 +42,8 @@
     {"prompt": "I throw a fireball and poison the ground where they stand", "min_components": 2, "contains": ["damage", "dot"]},
     {"prompt": "I zap them with lightning and stun them for a moment", "min_components": 2, "contains": ["damage", "control"]},
 
-    {"prompt": "Give me a shield and a sword and a tank and 50 more health and a dragon and infinite mana", "max_components": 3},
-    {"prompt": "I unleash ten thousand attacks all at once from every direction", "max_components": 3},
+    {"prompt": "Give me a shield and a sword and a tank and 50 more health and a dragon and infinite mana", "max_components": 4},
+    {"prompt": "I unleash ten thousand attacks all at once from every direction", "max_components": 4},
 
     {"prompt": "asdfjkl banana", "types_exact": ["damage"], "power": [1, 2]},
     {"prompt": "purple monday sneezes loudly at the ceiling", "types_exact": ["damage"], "power": [1, 2]}

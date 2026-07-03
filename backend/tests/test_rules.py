@@ -77,8 +77,9 @@ def test_normalize_truncates_to_max_components():
         {"type": "heal", "power": 4},
         {"type": "defense", "subtype": "shield", "power": 4},
         {"type": "hot", "power": 3, "duration": 3},
+        {"type": "barrier", "power": 5},
     ]
-    assert len(normalize_components(raw, BAL)) == BAL.max_components == 3
+    assert len(normalize_components(raw, BAL)) == BAL.max_components == 4
 
 
 def test_normalize_stat_requires_stat_and_magnitude():
@@ -345,3 +346,73 @@ def test_build_roster_you_is_the_caster():
 
     r = build_roster(initial_game(BAL), "p2")
     assert r.caster_stickman() == "p2s" and r.opponent_stickman() == "p1s"
+
+
+# ---------------------------------------------------------------------------
+# Combos (P3.1c): <=1 damage per source, unit cap, cost cap scales
+# ---------------------------------------------------------------------------
+
+
+def _ru(uid, name, kind="entity", hp=40):
+    return RosterUnit(id=uid, name=name, kind=kind, hp=hp, max_hp=hp)
+
+
+def _combat_roster(n_entities=1):
+    you = [_ru("p1s", "Ada", "stickman", 100)] + [
+        _ru(f"p1e{i}a", f"E{i}") for i in range(1, n_entities + 1)
+    ]
+    return Roster(you=you, foe=[_ru("p2s", "Bo", "stickman", 100)])
+
+
+def test_combo_allows_one_damage_per_source():
+    r = _combat_roster(1)
+    out = normalize_components(
+        [
+            {"type": "damage", "power": 5, "source_id": "p1s", "target_id": "p2s"},
+            {"type": "damage", "power": 6, "source_id": "p1e1a", "target_id": "p2s"},
+        ],
+        BAL,
+        r,
+    )
+    assert [c.type for c in out] == [ComponentType.damage, ComponentType.damage]
+    assert {c.source_id for c in out} == {"p1s", "p1e1a"}
+
+
+def test_combo_dedups_two_damage_from_the_same_source():
+    r = _combat_roster(1)
+    out = normalize_components(
+        [
+            {"type": "damage", "power": 5, "source_id": "p1e1a"},
+            {"type": "damage", "power": 6, "source_id": "p1e1a"},
+        ],
+        BAL,
+        r,
+    )
+    assert len([c for c in out if c.type is ComponentType.damage]) == 1
+
+
+def test_combo_caps_units_per_command():
+    r = _combat_roster(2)  # stickman + 2 entities = 3 possible sources
+    out = normalize_components(
+        [
+            {"type": "damage", "power": 5, "source_id": "p1s"},
+            {"type": "damage", "power": 5, "source_id": "p1e1a"},
+            {"type": "damage", "power": 5, "source_id": "p1e2a"},
+        ],
+        BAL,
+        r,
+    )
+    assert len({c.source_id for c in out}) == BAL.max_units_per_command
+
+
+def test_combo_cost_cap_scales_with_participants():
+    r = _combat_roster(1)
+    comps = normalize_components(
+        [
+            {"type": "damage", "power": 10, "source_id": "p1s"},
+            {"type": "damage", "power": 10, "source_id": "p1e1a"},
+        ],
+        BAL,
+        r,
+    )
+    assert bundle_cost(comps, BAL) > BAL.max_bundle_cost  # a 2-unit combo can cost more

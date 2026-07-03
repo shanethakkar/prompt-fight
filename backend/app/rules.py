@@ -110,7 +110,6 @@ def normalize_components(
     mmax = balance.max_stat_magnitude
 
     out: list[EffectComponent] = []
-    seen_damage = False
     seen_control = False
 
     for item in raw:
@@ -128,9 +127,8 @@ def normalize_components(
         comp: EffectComponent | None = None
 
         if ctype is ComponentType.damage:
-            if seen_damage:
-                continue  # at most one instant-damage component per bundle
-            seen_damage = True
+            # Multiple damage components are allowed (a combo) but capped to one
+            # per source unit downstream in _enforce_combo_caps.
             comp = EffectComponent(
                 type=ctype, target=ComponentTarget.opponent, element=element, power=power
             )
@@ -207,7 +205,30 @@ def normalize_components(
     if roster is not None:
         for c in out:
             _resolve_ids(c, roster)
-    return out
+    return _enforce_combo_caps(out, balance)
+
+
+def _enforce_combo_caps(
+    out: list[EffectComponent], balance: BalanceConfig
+) -> list[EffectComponent]:
+    """Bound a command's breadth: at most one ``damage`` per source unit and at
+    most ``max_units_per_command`` distinct units acting. Without a roster every
+    source is None, so this collapses to the classic <=1-damage-per-command rule."""
+    kept: list[EffectComponent] = []
+    damaged: set[str | None] = set()
+    units: list[str] = []
+    for c in out:
+        sid = c.source_id
+        if sid is not None and sid not in units:
+            if len(units) >= balance.max_units_per_command:
+                continue  # a unit beyond the command's participant cap
+            units.append(sid)
+        if c.type is ComponentType.damage:
+            if sid in damaged:
+                continue  # at most one instant-damage per source unit
+            damaged.add(sid)
+        kept.append(c)
+    return kept
 
 
 # ---------------------------------------------------------------------------
@@ -256,7 +277,10 @@ def bundle_cost(components: list[EffectComponent], balance: BalanceConfig) -> in
     mult = balance.bundle_multipliers.get(
         str(n), balance.bundle_multipliers[str(balance.max_components)]
     )
-    return min(balance.max_bundle_cost, math.ceil(total * mult))
+    # The cap scales with how many units act — a multi-unit combo may cost more
+    # than one turn's mana, so you bank for it (affordability naturally gates it).
+    participants = max(1, len({c.source_id for c in components if c.source_id is not None}))
+    return min(balance.max_bundle_cost * participants, math.ceil(total * mult))
 
 
 def kind_cooldowns(components: list[EffectComponent], balance: BalanceConfig) -> dict[str, int]:

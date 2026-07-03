@@ -28,7 +28,8 @@ def test_known_values() -> None:
     assert cfg.component_weights.summon == 0.7
     assert cfg.max_entities_per_side == 3
     assert cfg.bundle_multipliers["1"] == 1.0
-    assert cfg.max_components == 3
+    assert cfg.max_components == 4
+    assert cfg.max_units_per_command == 2
     assert cfg.kind_cooldowns_turns.heal == 3
     assert cfg.damage_taken_per_point == 0.1
     assert cfg.defense_stance_duration_turns == 1

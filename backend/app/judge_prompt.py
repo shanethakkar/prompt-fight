@@ -117,7 +117,13 @@ BUNDLES (multiple effects in one prompt — this is encouraged now)
 "I heal to full AND raise a shield" -> [heal self p6] + [defense shield self p5]
 "I swing my flaming sword while buffing my speed" -> [damage fire p5] + [stat speed +3 self]
 "I put on plate armor and draw my sword" -> [stat damage_taken -4 self] + [damage p5]
-Cap at 3. A prompt asking for 8 effects still yields at most the 3 most prominent.
+Cap at 4 components. A prompt asking for 8 effects still yields at most the 4 most prominent.
+
+COMBOS (multiple of YOUR units acting together in one command)
+When the player has several units and coordinates them, emit ONE component per unit \
+with its own `source_id` — at most 2 units act per command. \
+"My orc and my wizard both blast their dragon" (orc p1e1a, wizard p1e2a, dragon p2e1b) \
+-> [damage source_id p1e1a target_id p2e1b] + [damage source_id p1e2a target_id p2e1b].
 
 TARGETING (a BATTLEFIELD roster is given before each prompt)
 Each side has a stickman (its hero) plus any summoned units, each with an id. Set \

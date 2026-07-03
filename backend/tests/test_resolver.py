@@ -25,7 +25,7 @@ from app.models import (
     Weapon,
 )
 from app.resolver import initial_game, resolve_turn
-from app.rules import normalize_components
+from app.rules import build_roster, normalize_components
 
 BAL = load_balance()
 
@@ -723,3 +723,22 @@ def test_summon_respects_the_entity_cap():
     st.p1.entities = [orc(id=f"p1e0{i}", name="X") for i in range(BAL.max_entities_per_side)]
     r = turn(st, action({"type": "summon", "name": "Extra", "hp": 40, "power": 5}))
     assert len(r.state.p1.entities) == BAL.max_entities_per_side  # full -> new one dropped
+
+
+def test_combo_two_units_both_hit_one_target():
+    st = state(active="p1")
+    st.p1.entities = [orc(id="p1e1a", power=5)]  # weapon 5 -> 15
+    roster = build_roster(st, "p1")
+    comps = normalize_components(
+        [
+            {"type": "damage", "power": 6, "source_id": "p1s", "target_id": "p2s"},
+            {"type": "damage", "source_id": "p1e1a", "target_id": "p2s"},
+        ],
+        BAL,
+        roster,
+    )
+    a = Action(components=comps, element=Element("physical"), speed=5, flavor_text="team up")
+    r = turn(st, a)
+    dmgs = [e for e in r.events if e.kind == "damage"]
+    assert len(dmgs) == 2 and {e.actor_name for e in dmgs} == {"P1", "Orc"}
+    assert r.state.p2.stickman.hp == 100 - 18 - 15  # stickman 6*3 + orc weapon 5*3

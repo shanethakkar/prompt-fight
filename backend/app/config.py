@@ -95,6 +95,7 @@ class BalanceConfig(BaseModel):
     bundle_multipliers: dict[str, float]
 
     max_components: int
+    max_units_per_command: int
     max_bundle_cost: int
     max_effects_per_player: int
     max_effect_duration: int

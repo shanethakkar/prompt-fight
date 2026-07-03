@@ -26,10 +26,12 @@
   "bundle_multipliers": {
     "1": 1.0,
     "2": 1.15,
-    "3": 1.3
+    "3": 1.3,
+    "4": 1.45
   },
 
-  "max_components": 3,
+  "max_components": 4,
+  "max_units_per_command": 2,
   "max_bundle_cost": 20,
   "max_effects_per_player": 6,
   "max_effect_duration": 4,
