@@ -13,9 +13,9 @@ def test_loads_balance_config() -> None:
 def test_known_values() -> None:
     cfg = load_balance()
     assert cfg.hp_start == 100
-    assert cfg.mana_start == 12
-    assert cfg.mana_max == 22
-    assert cfg.mana_regen_per_turn == 4
+    assert cfg.mana_start == 14
+    assert cfg.mana_max == 24
+    assert cfg.mana_regen_per_turn == 5
     assert cfg.judge_model == "claude-haiku-4-5"
     assert cfg.component_weights.damage == 1.0
     assert cfg.component_weights.barrier == 1.5
@@ -25,7 +25,7 @@ def test_known_values() -> None:
     assert cfg.max_control_duration == 2
     assert cfg.stun_immunity_turns == 2
     assert cfg.kind_cooldowns_turns.control == 2
-    assert cfg.component_weights.summon == 0.7
+    assert cfg.component_weights.summon == 0.6
     assert cfg.max_entities_per_side == 3
     assert cfg.effectiveness_multipliers["devastating"] == 2.0
     assert cfg.offense_mult_ceil == 2.5

@@ -185,7 +185,7 @@ def normalize_components(
                 element=element,  # the new unit's weapon element
                 power=power,  # the new unit's weapon power (anchors its attacks)
                 name=str(item.get("name") or "summon")[:24],
-                hp=_clamp(_int(item.get("hp"), 40), balance.summon_hp_min, balance.summon_hp_max),
+                hp=_clamp(_int(item.get("hp"), 25), balance.summon_hp_min, balance.summon_hp_max),
                 tags=tags,
                 item=str(item_name)[:24] if isinstance(item_name, str) else None,
             )

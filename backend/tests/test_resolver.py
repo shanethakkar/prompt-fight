@@ -519,12 +519,12 @@ def test_damage_and_stat_have_no_cooldown():
 
 def test_mana_cost_and_end_of_turn_regen():
     r = turn(state(active="p1"), action(DMG5))  # cost 7
-    assert r.state.p1.mana == 7  # 10 - 7 + 4 regen
+    assert r.state.p1.mana == 8  # 10 - 7 + 5 regen
 
 
 def test_mana_floors_at_zero():
     r = turn(state(p1=player(mana=2, name="P1"), active="p1"), action(DMG5))
-    assert r.state.p1.mana == 4  # max(0, 2-7) + 4 regen
+    assert r.state.p1.mana == 5  # max(0, 2-7) + 5 regen
 
 
 # ---------------------------------------------------------------------------
@@ -658,7 +658,7 @@ def test_deterministic():
 def test_initial_game():
     g = initial_game(BAL, "A", "B")
     assert g.round == 1 and g.active == "p1"
-    assert g.p1.stickman.hp == 100 and g.p1.mana == 12 and g.p1.name == "A"
+    assert g.p1.stickman.hp == 100 and g.p1.mana == 14 and g.p1.name == "A"
     assert g.p1.stickman.effects == [] and g.p1.cooldowns == {}
 
 

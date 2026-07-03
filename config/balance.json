@@ -7,9 +7,9 @@
 
   "hp_start": 100,
   "hp_max": 100,
-  "mana_start": 12,
-  "mana_max": 22,
-  "mana_regen_per_turn": 4,
+  "mana_start": 14,
+  "mana_max": 24,
+  "mana_regen_per_turn": 5,
 
   "cost_exponent": 1.2,
   "component_weights": {
@@ -21,7 +21,7 @@
     "defense": 0.75,
     "barrier": 1.5,
     "control": 5.0,
-    "summon": 0.7,
+    "summon": 0.6,
     "item": 0.5
   },
   "bundle_multipliers": {
@@ -55,8 +55,8 @@
   "stun_immunity_turns": 2,
 
   "max_entities_per_side": 3,
-  "summon_hp_min": 15,
-  "summon_hp_max": 80,
+  "summon_hp_min": 8,
+  "summon_hp_max": 75,
 
   "damage_taken_per_point": 0.1,
   "damage_taken_mult_floor": 0.25,

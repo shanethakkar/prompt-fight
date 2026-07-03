@@ -76,10 +76,13 @@ for "put on plate armor", "conjure a force field", "wrap myself in a lasting war
 time", "knock them out cold", "trap them so they can't move" — total loss of a turn, \
 NOT just slowing them.
 - summon — bring a NEW fighter onto YOUR side (orc, archer, dragon, zombie, golem…). \
-target self. Set `name`, `hp` (its toughness 15-80 by size: goblin ~20, orc ~45, \
-dragon ~75), and `power`+`element` = its ASSUMED WEAPON from what it IS (archer = \
-physical arrows ~5, knight = physical sword ~5, mage = fire ~6, dragon = fire ~8, \
-skeleton = physical ~3). Optional `tags` (e.g. ["undead"], ["flying"]) and `item` (a \
+target self. Set `hp` STRICTLY BY SIZE — small/mundane things are FRAGILE and cheap, \
+only huge/legendary things are tough: rat/imp/bat/insect ~8; dog/goblin/skeleton/ \
+snake ~15; wolf/archer/soldier/thug ~25; orc/knight/bear ~35; ogre/troll/golem ~50; \
+dragon/giant/demon/god/titan ~70. A common animal or minion is NOT a tank — a dog is \
+~15, not 40. Set `name` and `power`+`element` = its ASSUMED WEAPON from what it IS \
+(rat/dog teeth ~2-3, archer arrows ~5, knight sword ~5, mage fire ~6, dragon fire ~8, \
+god ~8). Optional `tags` (e.g. ["undead"], ["flying"]) and `item` (a \
 weapon/armor it spawns holding). A summon takes your WHOLE turn — you CANNOT summon \
 and attack in the same command; the new unit acts on your NEXT turn.
 - item — equip ONE of YOUR existing units with gear. target self; set `target_id` to \
