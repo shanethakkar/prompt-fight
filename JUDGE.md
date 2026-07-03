@@ -8,8 +8,9 @@ The judge is the game's only AI component: an LLM that converts a freeform playe
 
 - Model: config value (`balance.json: judge_model`), default a small fast cloud model (Claude Haiku via Anthropic API; Groq-hosted small model acceptable).
 - `temperature = 0` — identical prompts must judge identically (prevents cost-preview fishing).
-- Structured output enforced (tool/JSON schema mode). A malformed response is retried once, then falls back to a "sputter" no-op action with an apologetic narration.
-- The judge system prompt is built from this file: rules (§2–§3), rubric (§6), schema (§4), and few-shot examples (§8).
+- Structured output enforced via **forced tool-use**: the judge must call a single `emit_action` tool (`tool_choice` forces it) whose input schema mirrors §4. A malformed/absent tool call is retried once, then falls back to a "sputter" no-op (attack/melee, power 1, speed 5, physical).
+- The judge system prompt lives in `backend/app/judge_prompt.py` (`JUDGE_SYSTEM`), which mirrors this file: rules (§2–§3), single-effect (§3), primitives (§5), rubric (§6), and few-shot examples (§8). Keep the two in sync; the eval suite (§7) is the regression guard.
+- **Category reconciliation:** the server trusts `subtype` and derives `category` from it (`category = SUBTYPE_CATEGORY[subtype]`), so a judge category/subtype mismatch self-corrects instead of being rejected.
 
 ## 2. Judge instructions (core rules)
 
@@ -54,7 +55,7 @@ Defined once here; mirrored as a Pydantic model (backend) and TypeScript type (f
 }
 ```
 
-Notes: `subtype` must belong to `category`. `template` follows deterministically from `subtype` (server validates and corrects). `stat` applies **only to buff/debuff** — set it to `power` or `speed` for the stat the effect shifts (default `power` if unclear); it is `null` for all other categories. `mana_cost` is **not** in the schema — the server computes it from `power` + `category` per `balance.json`.
+Notes: `subtype` must belong to `category`. `template` follows deterministically from `subtype` (server derives it — **not** in the `emit_action` tool schema). `stat` applies **only to buff/debuff** — set it to `power` or `speed` for the stat the effect shifts (default `power` if unclear); it is `null`/omitted for all other categories. `mana_cost` is **not** in the schema — the server computes it from `power` + `category` per `balance.json`. The `emit_action` tool the judge calls asks for `category`, `subtype`, `element`, `power`, `speed`, `stat`, `visual`, `flavor_text` (everything above except `template`/`mana_cost`).
 
 ## 5. Visual primitives guidance
 
