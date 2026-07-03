@@ -167,8 +167,8 @@ export default function GameBoard() {
             {sandbox && <span className="ml-2 text-amber-400">· sandbox</span>}
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <PlayerStatus player={state.p1} config={config} active={activeSide === "p1" && phase !== "handoff"} />
-            <PlayerStatus player={state.p2} config={config} active={activeSide === "p2" && phase !== "handoff"} />
+            <PlayerStatus player={state.p1} config={config} side="p1" active={activeSide === "p1" && phase !== "handoff"} />
+            <PlayerStatus player={state.p2} config={config} side="p2" active={activeSide === "p2" && phase !== "handoff"} />
           </div>
           <div className="flex flex-col items-center">
             {phase === "handoff" && <HandoffScreen name={activePlayer.name} onReady={handoffReady} />}

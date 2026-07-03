@@ -106,6 +106,22 @@ export function elementColor(element: Element): string {
   }
 }
 
+/** A small glyph per element, for icon-led unit/kit display. */
+export function elementIcon(element: Element): string {
+  switch (element) {
+    case "fire":
+      return "🔥";
+    case "water":
+      return "💧";
+    case "nature":
+      return "🌿";
+    case "lightning":
+      return "⚡";
+    default:
+      return "⚔️"; // physical / mundane
+  }
+}
+
 export function canConfirm(res: JudgeResponse, rewritesRemaining: number): boolean {
   if (!res.action) return false;
   if (rewritesRemaining <= 0) return true;

@@ -4,6 +4,7 @@ import {
   canRewrite,
   capitalize,
   describeAction,
+  elementIcon,
   ledgerLines,
   narrateResult,
   pct,
@@ -335,5 +336,15 @@ describe("ledgerLines", () => {
       ],
     };
     expect(ledgerLines(entry, NAMES)).toEqual(["Bo takes 4 poison damage.", "Ada hits Bo for 12."]);
+  });
+});
+
+describe("elementIcon", () => {
+  it("maps each element to a glyph and physical to a fallback", () => {
+    expect(elementIcon("fire")).toBe("🔥");
+    expect(elementIcon("water")).toBe("💧");
+    expect(elementIcon("nature")).toBe("🌿");
+    expect(elementIcon("lightning")).toBe("⚡");
+    expect(elementIcon("physical")).toBe("⚔️");
   });
 });
