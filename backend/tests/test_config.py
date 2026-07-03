@@ -18,6 +18,9 @@ def test_known_values() -> None:
     assert cfg.mana_regen_per_turn == 4
     assert cfg.judge_model == "claude-haiku-4-5"
     assert cfg.component_weights.damage == 1.0
+    assert cfg.component_weights.barrier == 1.5
+    assert cfg.barrier_pool_per_power == 3.0
+    assert cfg.max_barriers_per_player == 2
     assert cfg.bundle_multipliers["1"] == 1.0
     assert cfg.max_components == 3
     assert cfg.kind_cooldowns_turns.heal == 3

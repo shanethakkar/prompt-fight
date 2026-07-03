@@ -7,6 +7,7 @@ import type {
   EffectComponent,
   Element,
   JudgeResponse,
+  LedgerEntry,
   PlayerState,
   ResolutionEvent,
   Side,
@@ -70,6 +71,8 @@ export function describeComponent(c: EffectComponent): string {
     }
     case "defense":
       return `${capitalize(c.subtype ?? "shield")}`;
+    case "barrier":
+      return `Barrier · pow ${c.power}`;
     default:
       return c.type;
   }
@@ -132,10 +135,15 @@ export function narrateResult(e: ResolutionEvent, names: Record<Side, string>): 
   if (e.kind === "hot_tick") {
     return e.amount > 0 ? `${target} regenerates ${e.amount} HP.` : `${target} is already at full health.`;
   }
+  if (e.kind === "barrier_shatter") {
+    return `${target}'s barrier shatters!`;
+  }
 
   switch (e.kind) {
     case "damage":
       return narrateDamage(e, actor, target);
+    case "barrier":
+      return `${actor} raises a barrier${eff?.barrier_remaining ? ` (${eff.barrier_remaining} absorb)` : ""}.`;
     case "heal":
       return e.amount > 0 ? `${actor} recovers ${e.amount} HP.` : `${actor} is already at full health.`;
     case "dot":
@@ -158,10 +166,16 @@ export function narrateResult(e: ResolutionEvent, names: Record<Side, string>): 
 
 function narrateDamage(e: ResolutionEvent, actor: string, target: string): string {
   const eff = e.effect;
+  const soaked = eff?.barrier_absorbed ?? 0;
+  const left = eff?.barrier_remaining;
+  const barrierTail = soaked ? ` — barrier soaks ${soaked}` : "";
   switch (e.outcome) {
     case "hit_knockback":
-      return `${actor} hits ${target} for ${e.amount}.`;
+      return `${actor} hits ${target} for ${e.amount}${barrierTail}.`;
     case "blocked":
+      if (soaked && !eff?.absorbed) {
+        return `${target}'s barrier soaks the hit${left != null ? ` — ${left} left` : ""}.`;
+      }
       return `${target} blocks it${eff?.absorbed ? ` (absorbed ${eff.absorbed})` : ""} — no damage.`;
     case "partial": {
       const how =
@@ -170,12 +184,12 @@ function narrateDamage(e: ResolutionEvent, actor: string, target: string): strin
           : eff?.kind === "reflect"
             ? "punches through the reflect"
             : "gets through the shield";
-      return `It ${how} — ${e.amount} to ${target}.`;
+      return `It ${how} — ${e.amount} to ${target}${barrierTail}.`;
     }
     case "dodged":
       return `${target} dodges it completely.`;
     case "reflected":
-      return `Reflected! ${e.amount} bounces back at ${actor}.`;
+      return `Reflected! ${e.amount} bounces back at ${actor}${barrierTail}.`;
     default:
       return `${actor} hits ${target} for ${e.amount}.`;
   }
@@ -237,10 +251,18 @@ export function statusChips(p: PlayerState): Chip[] {
       }
     }
   }
+  for (const bar of p.barriers) {
+    chips.push({ text: `Barrier ${bar.pool}`, tone: "defense" });
+  }
   for (const [kind, turns] of Object.entries(p.cooldowns)) {
     if (turns && turns > 0) {
       chips.push({ text: `${capitalize(kind)} ready in ${turns}`, tone: "cooldown" });
     }
   }
   return chips;
+}
+
+/** The narration lines of one committed turn, for the combat ledger. */
+export function ledgerLines(entry: LedgerEntry, names: Record<Side, string>): string[] {
+  return entry.events.map((e) => narrateResult(e, names)).filter(Boolean);
 }

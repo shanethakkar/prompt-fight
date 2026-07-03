@@ -128,6 +128,12 @@ def normalize_components(raw: list[Any], balance: BalanceConfig) -> list[EffectC
                     subtype=subtype,
                 )
             )
+        elif ctype is ComponentType.barrier:
+            out.append(
+                EffectComponent(
+                    type=ctype, target=ComponentTarget.caster, element=element, power=power
+                )
+            )
 
     return out
 
@@ -152,6 +158,8 @@ def component_weight(c: EffectComponent, balance: BalanceConfig) -> float:
         return abs(c.magnitude or 0) * (c.duration or 1) * w.stat
     if c.type is ComponentType.defense:
         return (c.power or 0) * w.defense
+    if c.type is ComponentType.barrier:
+        return (c.power or 0) * w.barrier
     return 0.0
 
 
@@ -185,7 +193,8 @@ def kind_cooldowns(components: list[EffectComponent], balance: BalanceConfig) ->
     for c in components:
         if c.type is ComponentType.heal:
             key, base = "heal", balance.kind_cooldowns_turns.heal
-        elif c.type is ComponentType.defense:
+        elif c.type in (ComponentType.defense, ComponentType.barrier):
+            # Barrier shares the defensive-stance cooldown (both are "put up a guard").
             key, base = "defense", balance.kind_cooldowns_turns.defense
         else:
             continue

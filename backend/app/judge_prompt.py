@@ -62,14 +62,24 @@ COMPONENT TYPES (each component has a `type` and a `target`: "self" or "opponent
   Examples: plate armor = stat damage_taken -4 self; weaken their blows = stat power \
 -4 opponent; freeze/slow them = stat speed -6 opponent; berserker strength = stat \
 power +5 self.
-- defense  — raise a defensive stance for the opponent's next turn. target self. \
+- defense  — raise a REACTIVE stance for the opponent's next turn only. target self. \
 Needs `subtype` (shield | dodge | reflect), `power`, `element`. A shield absorbs, a \
-dodge evades a slower hit, a reflect bounces a weaker hit back.
+dodge evades a slower hit, a reflect bounces a weaker hit back. Use for "raise my \
+shield", "dodge", "parry" — a one-time reaction.
+- barrier — a PERSISTENT durability pool (armor / ward / force field) that soaks \
+incoming hits across many turns until it shatters. target self. Needs `power`. Use \
+for "put on plate armor", "conjure a force field", "wrap myself in a lasting ward", \
+"a suit of armor" — durable gear, not a one-turn block.
 
 CHOOSING dot VS stat: if the prompt describes ongoing HP loss ("bleed", "burn", \
 "poison courses through them"), use `dot`. If it describes making them WEAKER or \
 SLOWER (not losing HP), use `stat`. "Blind them" has no HP loss and no true accuracy \
 stat yet — approximate as a `speed` debuff on the opponent.
+
+CHOOSING defense VS barrier VS stat: a one-turn reactive block/dodge/parry → \
+`defense`; durable worn armor / a lasting ward that keeps soaking hits → `barrier`; \
+"they take MORE damage" (a curse/mark that weakens a defender) → `stat damage_taken` \
+positive on the opponent.
 
 POWER / MAGNITUDE (from claimed scope)
 1-2  trivial: slap, pebble, a weak poison
@@ -103,8 +113,10 @@ template projectile, "A roaring fireball screams across the arena!"
 "I poison their bloodstream so they bleed out slowly" -> [dot nature power 5 \
 duration 3 opponent], element nature, "Venom crawls through their veins."
 "I set them on fire" -> [dot fire power 5 duration 3 opponent], "Flames catch and spread."
-"I put on a full suit of enchanted plate armor" -> [stat damage_taken -4 duration 4 \
-self], template shield_raise, "Plate clangs shut — blows will glance off."
+"I put on a full suit of enchanted plate armor" -> [barrier power 6 self], \
+template shield_raise, "Plate clangs shut — it'll soak a beating."
+"I mark them with a hex so every blow wounds them worse" -> [stat damage_taken +4 \
+duration 3 opponent], "A hex blooms — their guard falters."
 "I freeze them solid so they can't move" -> [stat speed -6 duration 2 opponent], \
 element water, "Ice locks their limbs in place."
 "I blind them by throwing sand in their eyes" -> [stat speed -3 duration 2 opponent], \

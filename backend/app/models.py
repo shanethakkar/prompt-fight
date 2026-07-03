@@ -36,6 +36,7 @@ class ComponentType(StrEnum):
     hot = "hot"  # heal over time (regen)
     stat = "stat"  # persistent stat shift (empower/weaken/haste/slow/armor/expose)
     defense = "defense"  # a raised defensive stance (shield/dodge/reflect)
+    barrier = "barrier"  # a durability pool that absorbs damage until it shatters
 
 
 class ComponentTarget(StrEnum):
@@ -91,8 +92,9 @@ class Outcome(StrEnum):
     dodged = "dodged"
     reflected = "reflected"
     healed = "healed"
-    applied = "applied"  # a dot/hot/stat/defense effect took hold
+    applied = "applied"  # a dot/hot/stat/defense/barrier effect took hold
     ticked = "ticked"  # an over-time effect fired at start of turn
+    shattered = "shattered"  # a barrier's pool was fully depleted
     fizzled = "fizzled"  # component did nothing (e.g. cost/validation dropped it)
 
 
@@ -120,6 +122,7 @@ COMPONENT_TEMPLATE: dict[ComponentType, Template] = {
     ComponentType.hot: Template.heal_glow,
     ComponentType.stat: Template.buff_aura,
     ComponentType.defense: Template.shield_raise,
+    ComponentType.barrier: Template.shield_raise,
 }
 
 DEFENSE_TEMPLATE: dict[DefenseSubtype, Template] = {
@@ -222,6 +225,22 @@ class ActiveEffect(BaseModel):
     speed: int = 0
 
 
+class Barrier(BaseModel):
+    """A durability pool that soaks incoming damage until depleted, then shatters.
+
+    Deliberately NOT an ActiveEffect / not stored in ``effects``: it has no timer
+    (it persists as gear until broken), so it must be exempt from the end-of-turn
+    decrement and the effects-list size cap. Dots/hots bypass it.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    pool: int  # remaining absorb points
+    element: Element = Element.physical
+    source: Side = "p1"
+    label: str = "barrier"
+
+
 class PlayerState(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -232,6 +251,7 @@ class PlayerState(BaseModel):
     # Keyed by the cooldownable kinds only ("heal", "defense", "control").
     cooldowns: dict[str, int] = Field(default_factory=dict)
     effects: list[ActiveEffect] = Field(default_factory=list)
+    barriers: list[Barrier] = Field(default_factory=list)
 
 
 class GameState(BaseModel):
@@ -254,7 +274,9 @@ class EffectSummary(BaseModel):
     magnitude: int | None = None
     duration: int | None = None
     per_turn: int | None = None
-    absorbed: int | None = None
+    absorbed: int | None = None  # flat stance absorption
+    barrier_absorbed: int | None = None  # damage soaked by a durability pool
+    barrier_remaining: int | None = None  # pool left after this hit
     label: str = ""
 
 

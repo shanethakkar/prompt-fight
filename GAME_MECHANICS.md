@@ -32,7 +32,10 @@ Flavor is infinite; the mechanical vocabulary is a small fixed set. The judge (`
 | `dot` | opponent | `power` 1–10, `duration` 1–4, `element` | Damage over time (poison/burn/bleed). Ticks `round(power × dot_multiplier)` (×1.0) at the afflicted's start-of-turn. |
 | `hot` | self | `power` 1–10, `duration` 1–4 | Heal over time (regen). Ticks `round(power × hot_multiplier)` (×1.5) at your start-of-turn. |
 | `stat` | either | `stat`, signed `magnitude` (±8), `duration` 1–4 | Persistent stat shift. `stat` ∈ {`power`, `speed`, `damage_taken`}. |
-| `defense` | self | `subtype` (shield/dodge/reflect), `power`, `element` | A raised defensive stance for the opponent's next turn (§7). |
+| `defense` | self | `subtype` (shield/dodge/reflect), `power`, `element` | A one-shot reactive stance for the opponent's next turn (§7). |
+| `barrier` | self | `power`, `element` | A **durability pool** (armor/ward/force field): `pool = power × barrier_pool_per_power` (×3) absorb points that soak incoming hits until the pool shatters. **No timer** — persists as gear until broken. Dots bypass it. |
+
+**Three mitigation flavors, don't confuse them:** `defense` = a *one-turn* reactive block/dodge/parry (consumed by the next hit); `barrier` = *durable worn armor* that soaks many hits over many turns until it shatters; `stat(damage_taken)` = a *percentage* multiplier (a temporary "brace" `−`, or a curse/`expose` `+` that makes a target take more).
 
 **`stat` sign convention:** `magnitude` is the signed change to the **target's** stat. Help yourself → `+power` / `+speed` / `−damage_taken` (armor). Hurt the enemy → `−power` / `−speed` / `+damage_taken` (expose). `damage_taken` is a multiplier on incoming damage: each point = ±`damage_taken_per_point` (10%); multiple `damage_taken` effects **multiply**, clamped to `[0.25, 2.5]`.
 
@@ -40,7 +43,7 @@ Flavor is infinite; the mechanical vocabulary is a small fixed set. The judge (`
 
 ## 4. Persistent effects and stat folding
 
-A player carries a **list** of active effects (`PlayerState.effects`, capped at `max_effects_per_player` = 6, newest kept). Effects are applied to the target and tick/decrement on **that player's own turns** (§7). At read time the resolver folds the list into live numbers:
+A player carries a **list** of active effects (`PlayerState.effects`, capped at `max_effects_per_player` = 6, newest kept). Effects are applied to the target and tick/decrement on **that player's own turns** (§7). **Barriers are kept in a separate list** (`PlayerState.barriers`, capped at `max_barriers_per_player` = 2): they have no timer, so they must be exempt from the effect decrement and the effects-list cap. At read time the resolver folds the list into live numbers:
 
 - **effective power** = `base + Σ(power stat magnitudes)`, floor 0.
 - **effective speed** = `base + Σ(speed stat magnitudes)`, floor 1.
@@ -54,7 +57,7 @@ The whole bundle is priced together (summing per-component costs was a burst exp
 
 `cost = min(max_bundle_cost, ceil( Σ(component_weightᵢ ^ cost_exponent) × bundle_mult[n] ))`
 
-- **component_weight:** `damage` = `power×1.0`, `heal` = `power×1.0`, `defense` = `power×0.75`, `dot` = `power×duration×0.28`, `hot` = `power×duration×0.32`, `stat` = `|magnitude|×duration×0.42`.
+- **component_weight:** `damage` = `power×1.0`, `heal` = `power×1.0`, `defense` = `power×0.75`, `barrier` = `power×1.5`, `dot` = `power×duration×0.28`, `hot` = `power×duration×0.32`, `stat` = `|magnitude|×duration×0.42`.
 - **bundle_mult** (super-additive surcharge by component count): 1 → 1.0, 2 → 1.15, 3 → 1.3.
 - **cost_exponent** = 1.2; **max_bundle_cost** = 20 (just under mana_max 22). A single `damage` reproduces the old attack curve: power 5 → 7, power 6 → 9, power 10 → 16.
 - **No burst discount:** because `Σ(wᵢ^e) ≥ max(wᵢ)^e` and `bundle_mult ≥ 1`, a bundle never costs less than its most expensive component alone. Typical 2-effect bundles land ~13–18 (heal+shield 13, damage+dot 15, lifesteal 18); 3-effect bundles ~18–22.
@@ -80,7 +83,7 @@ Each turn the **active player A** acts against **opponent O**. The turn runs STA
 **Consequences of owner-turn timing:** a self-buff cast on your turn first bites on your *next* turn and lasts exactly `duration` of your turns; a `dot`/debuff lands on O immediately and ticks on O's next `duration` turns; a cooldown-N move blocks exactly your next N turns.
 
 ### Damage pipeline (per `damage` component, pinned order)
-`raw = effective_power × attack_damage_multiplier` (×3) → `× type_multiplier` (only vs a stance's element, §8) → `× damage_taken_mult` (O's armor/expose, always) → **then** the flat stance block/dodge/reflect (consumed on use) → floor 0. A `dot` tick bypasses stances and armor (it was frozen at application).
+`raw = effective_power × attack_damage_multiplier` (×3) → `× type_multiplier` (only vs a stance's element, §8) → `× damage_taken_mult` (O's `damage_taken` %, always) → **then** the flat stance block/dodge/reflect (consumed on use) → **then a `barrier` absorbs** (durability pool, closest to HP: soaks in list order, cascades through several, and each emptied pool **shatters**) → floor 0. Because the HP-application point is shared, a **reflected** hit is absorbed by the *attacker's own* barrier. A `dot` tick bypasses stances, `damage_taken`, and barriers (it was frozen at application).
 
 ### Defenses are stances (frozen, consume-on-hit)
 A `defense` component raised on your turn doesn't block anything yet — it **persists as a stance** for the opponent's next attack, with effective power/speed/element **frozen at cast**. It is **consumed the moment it mitigates an attack**, else expires at your next END (`defense_stance_duration_turns`, default 1). Mitigation applies to the *typed, armor-adjusted* damage:
@@ -121,6 +124,7 @@ Not implemented yet, in rough priority order: **A.2** `control`/stun (turn-skip)
 ---
 
 *Changelog (append newest first):*
+- 2026-07-03 — **Durability armor (`barrier`).** Added a `barrier` component: a persistent absorb pool (`power × 3` points) that soaks incoming damage until it shatters — no timer, kept in a separate `PlayerState.barriers` list (exempt from the effect decrement + cap). Sits closest to HP in the damage pipeline (after the stance layer); dots bypass it; a reflected hit is soaked by the attacker's own barrier. The judge now maps durable gear ("plate armor", "force field", "ward") → `barrier`, keeping `defense` for one-shot blocks and `stat(damage_taken)` for expose/brace. (Also shipped: a frontend combat ledger — presentation only, no rule change.)
 - 2026-07-03 — **Cost retune.** Bundle pricing now applies the exponent **per component** then sums (`Σ(wᵢ^e)`, was `(Σ wᵢ)^e`) — single-move costs are unchanged but 2-effect bundles dropped from the ~20 cap to ~13–18. Softened weights (heal 1.1→1.0, defense 0.8→0.75, dot/hot/stat down) and bundle multipliers (2: 1.3→1.15, 3: 1.7→1.3); mana economy up (start 10→12, max 20→22, regen 3→4). No-burst-discount invariant preserved.
 - 2026-07-03 — **Effect grammar (Stage A).** Replaced the 5 closed categories with an open-ended bundle of typed `EffectComponent`s (`damage`/`heal`/`dot`/`hot`/`stat`/`defense`). Rewrote §3–§8: persistent effect **list** (armor/poison/regen/weaken now persist and stack), **aggregate** bundle pricing with a super-additive surcharge, **component-kind** cooldowns, a three-phase turn with **start-of-turn over-time ticks + a new poison-KO path**, staged self-effects, and the pinned damage pipeline (type → armor → stance). Judge now emits a permissive component list; the server normalizes/clamps/caps. Deferred: stun, resource, blind/reliability, entities.
 - 2026-07-03 — **Turn model → alternating single-action turns** (Worms-style, was simultaneous). Resolver is now `resolve_turn(state, action)`; deleted speed-ordering / snapshot-delta / double-KO tiebreak / defense-priority tier. HP floors at 0. Effect/cooldown upkeep is end-of-*your*-turn (owner-turn timing). **Defenses are now persistent stances** (frozen at cast, consume-on-hit, expire next turn). Round cap checked at the round boundary. Events enriched (`target` + `effect` summary) for clear result narration.

@@ -12,6 +12,7 @@ from app.config import load_balance
 from app.models import (
     Action,
     ActiveEffect,
+    Barrier,
     DefenseSubtype,
     EffectKind,
     Element,
@@ -215,6 +216,92 @@ def test_armor_reduces_undefended_hit_and_persists():
     assert r.state.p2.hp == 89
     # armor still present on p2 (multi-hit); untouched on the attacker's turn
     assert any(e.stat is StatKind.damage_taken for e in r.state.p2.effects)
+
+
+# ---------------------------------------------------------------------------
+# Barrier: durability pool (absorbs until shattered, no timer, poison bypasses)
+# ---------------------------------------------------------------------------
+
+
+def barrier(pool=15, source="p2", element="physical"):
+    return Barrier(pool=pool, source=source, element=Element(element))
+
+
+def test_barrier_absorbs_then_overflows_and_shatters():
+    st = state(
+        p2=player(
+            name="P2",
+            effects=[],
+        )
+    )
+    st.p2.barriers = [barrier(pool=10)]
+    r = turn(st, action(DMG5))  # raw 15: absorb 10 + shatter, 5 to hp
+    dmg = next(e for e in r.events if e.kind == "damage")
+    assert dmg.amount == 5 and dmg.effect.barrier_absorbed == 10
+    assert [e.kind for e in r.events] == ["damage", "barrier_shatter"]
+    assert r.state.p2.hp == 95 and r.state.p2.barriers == []
+
+
+def test_barrier_full_absorb_marks_blocked():
+    st = state(p2=player(name="P2"))
+    st.p2.barriers = [barrier(pool=20)]
+    r = turn(st, action(DMG5))  # raw 15 fully soaked
+    dmg = next(e for e in r.events if e.kind == "damage")
+    assert dmg.amount == 0 and dmg.outcome == Outcome.blocked
+    assert r.state.p2.hp == 100 and r.state.p2.barriers[0].pool == 5
+
+
+def test_barrier_absorbs_reflected_hit_on_the_attacker():
+    st = state(
+        p1=player(hp=100, name="P1"),
+        p2=player(name="P2", effects=[stance(subtype="reflect", power=10)]),
+    )
+    st.p1.barriers = [barrier(pool=20, source="p1")]  # attacker's own barrier
+    r = turn(st, action({"type": "damage", "power": 10}))  # raw30 -> reflect 15 back to p1
+    assert r.state.p1.hp == 100 and r.state.p1.barriers[0].pool == 5
+
+
+def test_barrier_not_decremented_on_owner_turn():
+    st = state(p1=player(name="P1"))
+    st.p1.barriers = [barrier(pool=15, source="p1")]
+    r = turn(st, action({"type": "heal", "power": 4}))  # p1 acts, isn't hit
+    assert r.state.p1.barriers[0].pool == 15  # no timer, untouched
+
+
+def test_barrier_survives_the_effects_cap():
+    effs = [stat_eff("power", 1, turns=5) for _ in range(6)]  # fill the effects cap
+    st = state(p1=player(name="P1", effects=effs))
+    st.p1.barriers = [barrier(pool=12, source="p1")]
+    r = turn(
+        st,
+        action({"type": "stat", "stat": "power", "magnitude": 2, "target": "self", "duration": 2}),
+    )
+    assert len(r.state.p1.barriers) == 1 and r.state.p1.barriers[0].pool == 12
+
+
+def test_poison_bypasses_barrier():
+    st = state(active="p2", p2=player(name="P2", effects=[dot_eff(per_turn=6)]))
+    st.p2.barriers = [barrier(pool=20, source="p2")]
+    r = turn(st, WEAK)  # p2's start tick
+    assert r.events[0].kind == "dot_tick" and r.events[0].amount == 6
+    assert r.state.p2.hp == 94 and r.state.p2.barriers[0].pool == 20  # pool untouched
+
+
+def test_stance_then_barrier_layer():
+    st = state(p2=player(name="P2", effects=[stance(power=2)]))
+    st.p2.barriers = [barrier(pool=10)]
+    r = turn(st, action(DMG6))  # raw18, shield blocks 6 -> 12, barrier soaks 10 -> 2 to hp
+    dmg = next(e for e in r.events if e.kind == "damage")
+    assert dmg.amount == 2 and dmg.effect.absorbed == 6 and dmg.effect.barrier_absorbed == 10
+    assert r.state.p2.hp == 98
+
+
+def test_barrier_install_staged_and_capped():
+    st = state(p1=player(name="P1"))
+    st.p1.barriers = [barrier(pool=5, source="p1"), barrier(pool=5, source="p1")]  # already 2
+    r = turn(st, action({"type": "barrier", "power": 6}))  # pool 18, caps to newest 2
+    assert len(r.state.p1.barriers) == 2
+    assert r.state.p1.barriers[-1].pool == 18  # newest kept
 
 
 # ---------------------------------------------------------------------------

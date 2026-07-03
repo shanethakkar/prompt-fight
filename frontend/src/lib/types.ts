@@ -3,7 +3,7 @@
 
 export type Element = "physical" | "fire" | "water" | "nature" | "lightning";
 
-export type ComponentType = "damage" | "heal" | "dot" | "hot" | "stat" | "defense";
+export type ComponentType = "damage" | "heal" | "dot" | "hot" | "stat" | "defense" | "barrier";
 
 export type ComponentTarget = "self" | "opponent";
 
@@ -34,6 +34,7 @@ export type Outcome =
   | "healed"
   | "applied"
   | "ticked"
+  | "shattered"
   | "fizzled";
 
 export type Shape = "circle" | "rect" | "triangle" | "line" | "zigzag" | "ring" | "star";
@@ -87,12 +88,20 @@ export interface ActiveEffect {
   speed: number;
 }
 
+export interface Barrier {
+  pool: number;
+  element: Element;
+  source: Side;
+  label: string;
+}
+
 export interface PlayerState {
   name: string;
   hp: number;
   mana: number;
   cooldowns: Record<string, number>;
   effects: ActiveEffect[];
+  barriers: Barrier[];
 }
 
 export interface GameState {
@@ -116,6 +125,8 @@ export interface EffectSummary {
   duration?: number | null;
   per_turn?: number | null;
   absorbed?: number | null;
+  barrier_absorbed?: number | null;
+  barrier_remaining?: number | null;
   label?: string;
 }
 
@@ -181,4 +192,12 @@ export interface NewMatchResponse {
   match_id: string;
   state: GameState;
   config: MatchConfig;
+}
+
+// ---- Frontend-only: a running combat history (no backend mirror) -----------
+
+export interface LedgerEntry {
+  round: number;
+  actor: Side;
+  events: ResolutionEvent[];
 }

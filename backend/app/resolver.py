@@ -27,6 +27,7 @@ from app.models import (
     DEFENSE_TEMPLATE,
     Action,
     ActiveEffect,
+    Barrier,
     ComponentTarget,
     ComponentType,
     DefenseSubtype,
@@ -84,6 +85,30 @@ def _higher_hp(p1_hp: int, p2_hp: int) -> Side | Literal["draw"]:
 
 def _stance(player: PlayerState) -> ActiveEffect | None:
     return next((e for e in player.effects if e.kind is EffectKind.defense), None)
+
+
+def _absorb_through_barriers(target: PlayerState, amount: int) -> tuple[int, int, int, list[str]]:
+    """Soak ``amount`` through the target's durability pools (closest to HP).
+
+    Barriers deplete in list order; a big hit cascades through several. Returns
+    (hp_damage_left, total_absorbed, pool_remaining_after, shattered_labels).
+    """
+    if amount <= 0 or not target.barriers:
+        return amount, 0, sum(b.pool for b in target.barriers), []
+    absorbed = 0
+    shattered: list[str] = []
+    for barrier in list(target.barriers):
+        if amount <= 0:
+            break
+        take = min(amount, barrier.pool)
+        barrier.pool -= take
+        amount -= take
+        absorbed += take
+        if barrier.pool <= 0:
+            target.barriers.remove(barrier)
+            shattered.append(barrier.label)
+    remaining = sum(b.pool for b in target.barriers)
+    return amount, absorbed, remaining, shattered
 
 
 def _apply_damage(
@@ -199,6 +224,7 @@ def resolve_turn(state: GameState, action: Action, balance: BalanceConfig) -> Re
     active.mana = max(0, active.mana - bundle_cost(action.components, balance))
     atk_speed = effective_speed(action.speed, active.effects)
     staged: list[ActiveEffect] = []  # self-targeted effects installed post-decrement
+    staged_barriers: list[Barrier] = []
     stance_available = True  # the opponent's stance is consumed by the first hit
     primary_narrated = False
 
@@ -208,6 +234,7 @@ def resolve_turn(state: GameState, action: Action, balance: BalanceConfig) -> Re
         outcome = Outcome.applied
         amount = 0
         summary: EffectSummary | None = None
+        shatter: list[str] = []  # barrier labels that broke on this beat
         template = _component_template(c, action.template)
 
         if c.type is ComponentType.damage:
@@ -225,6 +252,15 @@ def resolve_turn(state: GameState, action: Action, balance: BalanceConfig) -> Re
             )
             stance_available = False  # first damage consumes any stance; later hits land bare
             hit = active if target == a_side else opponent
+            # Durability pools sit closest to HP: they soak whatever the stance let
+            # through (a reflected hit is absorbed by the ATTACKER's own barrier).
+            amount, absorbed, remaining, shatter = _absorb_through_barriers(hit, amount)
+            if absorbed:
+                summary = summary or EffectSummary(kind="barrier")
+                summary.barrier_absorbed = absorbed
+                summary.barrier_remaining = remaining
+                if amount == 0:
+                    outcome = Outcome.blocked  # the pool ate the whole hit
             hit.hp = max(0, hit.hp - amount)
 
         elif c.type is ComponentType.heal:
@@ -304,6 +340,14 @@ def resolve_turn(state: GameState, action: Action, balance: BalanceConfig) -> Re
             target = a_side
             summary = EffectSummary(kind=subtype.value, label=subtype.value)
 
+        elif c.type is ComponentType.barrier:
+            pool = max(1, round((c.power or 0) * balance.barrier_pool_per_power))
+            staged_barriers.append(
+                Barrier(pool=pool, element=c.element, source=a_side, label="barrier")
+            )
+            target = a_side
+            summary = EffectSummary(kind="barrier", barrier_remaining=pool)
+
         events.append(
             ResolutionEvent(
                 actor=a_side,
@@ -320,9 +364,25 @@ def resolve_turn(state: GameState, action: Action, balance: BalanceConfig) -> Re
         )
         primary_narrated = True
 
+        for label in shatter:  # one beat per pool that broke this component
+            events.append(
+                ResolutionEvent(
+                    actor=a_side,
+                    target=target,
+                    kind="barrier_shatter",
+                    outcome=Outcome.shattered,
+                    effect=EffectSummary(kind="barrier", label=label),
+                    template=Template.shield_raise,
+                    state_delta=_display(players, balance),
+                )
+            )
+
     # --- END OF TURN upkeep for the ACTIVE player only.
     _decrement_effects(active)
     _install_staged(active, staged, balance)
+    if staged_barriers:  # barriers have no timer; kept until broken, newest capped
+        active.barriers.extend(staged_barriers)
+        active.barriers = active.barriers[-balance.max_barriers_per_player :]
     active.cooldowns = {k: t - 1 for k, t in active.cooldowns.items() if t - 1 > 0}
     for k, cd in kind_cooldowns(action.components, balance).items():
         active.cooldowns[k] = cd

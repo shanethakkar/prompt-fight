@@ -188,6 +188,22 @@ def test_empty_bundle_is_free():
     assert bundle_cost([], BAL) == 0
 
 
+def test_barrier_costs_more_than_shield_at_equal_power():
+    shield = EffectComponent(type=ComponentType.defense, subtype=DefenseSubtype.shield, power=6)
+    barrier = EffectComponent(type=ComponentType.barrier, power=6)
+    assert bundle_cost([barrier], BAL) > bundle_cost([shield], BAL)
+
+
+def test_normalize_barrier_targets_self():
+    out = normalize_components([{"type": "barrier", "power": 6, "target": "opponent"}], BAL)
+    assert out[0].type is ComponentType.barrier and out[0].target is ComponentTarget.caster
+
+
+def test_barrier_shares_defense_cooldown():
+    comps = [EffectComponent(type=ComponentType.barrier, power=5)]
+    assert kind_cooldowns(comps, BAL) == {"defense": BAL.kind_cooldowns_turns.defense}
+
+
 # ---------------------------------------------------------------------------
 # kind_cooldowns: only heal/defense throttled; heavy bump
 # ---------------------------------------------------------------------------

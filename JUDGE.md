@@ -30,9 +30,10 @@ Capture INTENT with components; keep flavor in `flavor_text`. A "magic wand that
 - **`dot`** (opponent) — damage over time (poison/burn/bleed). `power` (per-tick), `duration` 1–4, `element`. Use for ongoing HP loss — *not* a one-time hit.
 - **`hot`** (self) — heal over time (regen). `power`, `duration`.
 - **`stat`** (either) — persistent stat shift. `stat` ∈ {`power`, `speed`, `damage_taken`}, signed `magnitude` (about −8..+8), `duration`. `magnitude` is the signed change to the **target's** stat: help yourself (`+power`/`+speed`/`−damage_taken` armor), hurt the enemy (`−power`/`−speed`/`+damage_taken` expose).
-- **`defense`** (self) — a stance for the opponent's next turn. `subtype` (shield/dodge/reflect), `power`, `element`.
+- **`defense`** (self) — a one-shot reactive stance for the opponent's next turn. `subtype` (shield/dodge/reflect), `power`, `element`.
+- **`barrier`** (self) — a persistent durability pool (armor / ward / force field) that soaks hits across many turns until it shatters. `power`, `element`.
 
-**`dot` vs `stat`:** ongoing HP loss ("bleed", "burn", "poison") → `dot`. Making them weaker/slower (no HP loss) → `stat`. **Deferred approximations** (until later phases add them): "freeze/stun" → a heavy `speed` debuff; "blind" → a `speed` debuff on the opponent; "drain their mana" → nearest available.
+**`dot` vs `stat`:** ongoing HP loss ("bleed", "burn", "poison") → `dot`. Making them weaker/slower (no HP loss) → `stat`. **`defense` vs `barrier` vs `stat(damage_taken)`:** one-turn block/dodge/parry → `defense`; durable worn armor / lasting ward → `barrier`; "they take more damage" (curse/mark) → `stat damage_taken +` on the opponent. **Deferred approximations** (until later phases add them): "freeze/stun" → a heavy `speed` debuff; "blind" → a `speed` debuff on the opponent; "drain their mana" → nearest available.
 
 **Bundles are encouraged.** "I heal to full and raise a shield" → `heal(self)` + `defense(shield, self)`; "I swing my flaming sword while buffing my speed" → `damage(fire)` + `stat(speed, +, self)`. A prompt asking for 8 effects still yields at most the 3 most prominent (the server truncates regardless).
 
@@ -100,7 +101,7 @@ Compose 1–4 primitives to sketch the described thing: sword = large `line` + s
 
 - **"I hurl a massive fireball"** → `[damage fire power 6]`, element fire, speed 6, template projectile.
 - **"I poison their bloodstream so they bleed out slowly"** → `[dot nature power 5 duration 3 opponent]`.
-- **"I put on a full suit of enchanted plate armor"** → `[stat damage_taken −4 duration 4 self]`, template shield_raise.
+- **"I put on a full suit of enchanted plate armor"** → `[barrier power 6 self]`, template shield_raise (durable gear → a barrier pool, not a one-shot shield).
 - **"I freeze them solid so they can't move"** → `[stat speed −6 duration 2 opponent]`, element water.
 - **"I heal myself to full and raise a shield"** → `[heal power 6 self] + [defense shield power 5 self]`.
 - **"I collapse a black hole on them"** → `[damage physical power 10]`, speed 2, template aoe_burst.

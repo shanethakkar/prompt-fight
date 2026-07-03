@@ -25,8 +25,10 @@
     {"prompt": "I cast a slow spell to bog my enemy down", "contains": ["stat"], "checks": [{"type": "stat", "stat": "speed", "target": "opponent", "magnitude": [-8, -2]}]},
     {"prompt": "I freeze them solid so they can barely move", "contains": ["stat"], "checks": [{"type": "stat", "stat": "speed", "target": "opponent", "magnitude": [-8, -3]}]},
     {"prompt": "I blind them by throwing sand in their eyes", "max_components": 2, "checks": [{"type": "stat", "target": "opponent"}]},
-    {"prompt": "I put on a full suit of enchanted plate armor", "contains": ["stat"], "checks": [{"type": "stat", "stat": "damage_taken", "target": "self", "magnitude": [-8, -2]}]},
     {"prompt": "I mark them with a hex so every hit wounds them worse", "contains": ["stat"], "checks": [{"type": "stat", "stat": "damage_taken", "target": "opponent", "magnitude": [2, 8]}]},
+
+    {"prompt": "I put on a full suit of enchanted plate armor", "contains": ["barrier"], "checks": [{"type": "barrier", "target": "self", "power": [4, 8]}]},
+    {"prompt": "I conjure a shimmering force field around myself", "contains": ["barrier"], "checks": [{"type": "barrier", "target": "self"}]},
 
     {"prompt": "I raise a sturdy shield to block the blow", "contains": ["defense"], "checks": [{"type": "defense", "target": "self"}]},
     {"prompt": "I nimbly dodge to the side", "contains": ["defense"], "checks": [{"type": "defense", "target": "self"}]},
@@ -34,7 +36,7 @@
 
     {"prompt": "I heal myself to full and raise a shield at the same time", "min_components": 2, "contains": ["heal", "defense"]},
     {"prompt": "I swing my flaming sword while buffing my own speed", "min_components": 2, "contains": ["damage", "stat"]},
-    {"prompt": "I put on plate armor and draw my sword", "min_components": 2, "contains": ["stat", "damage"]},
+    {"prompt": "I put on plate armor and draw my sword", "min_components": 2, "contains": ["barrier", "damage"]},
     {"prompt": "I throw a fireball and poison the ground where they stand", "min_components": 2, "contains": ["damage", "dot"]},
 
     {"prompt": "Give me a shield and a sword and a tank and 50 more health and a dragon and infinite mana", "max_components": 3},
@@ -47,6 +49,7 @@
     {"a": "I throw a fireball at them", "b": "I hurl a fireball at my enemy", "contains": ["damage"]},
     {"a": "I poison them with a slow-acting venom", "b": "I inject them with a creeping poison", "contains": ["dot"]},
     {"a": "I raise a big shield", "b": "I put up a large shield", "contains": ["defense"]},
+    {"a": "I wrap myself in a lasting ward", "b": "I surround myself with a protective force field", "contains": ["barrier"]},
     {"a": "I slow my opponent down", "b": "I make my enemy move slower", "contains": ["stat"]}
   ]
 }

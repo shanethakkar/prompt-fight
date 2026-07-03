@@ -4,6 +4,7 @@ import {
   canRewrite,
   capitalize,
   describeAction,
+  ledgerLines,
   narrateResult,
   pct,
   statusChips,
@@ -13,6 +14,7 @@ import type {
   Action,
   ActiveEffect,
   JudgeResponse,
+  LedgerEntry,
   PlayerState,
   ResolutionEvent,
 } from "@/lib/types";
@@ -208,7 +210,7 @@ describe("narrateResult", () => {
 
 describe("statusChips", () => {
   function ps(over: Partial<PlayerState>): PlayerState {
-    return { name: "P", hp: 100, mana: 10, cooldowns: {}, effects: [], ...over };
+    return { name: "P", hp: 100, mana: 10, cooldowns: {}, effects: [], barriers: [], ...over };
   }
   it("labels a power buff readably", () => {
     const chips = statusChips(ps({ effects: [eff({ stat: "power", magnitude: 5, turns_remaining: 2, label: "empowered" })] }));
@@ -234,5 +236,48 @@ describe("statusChips", () => {
   it("labels a shield stance", () => {
     const chips = statusChips(ps({ effects: [eff({ kind: "defense", subtype: "shield", turns_remaining: 1 })] }));
     expect(chips[0]).toEqual({ text: "Shield up", tone: "defense" });
+  });
+  it("labels a barrier with its remaining pool", () => {
+    const chips = statusChips(
+      ps({ barriers: [{ pool: 18, element: "physical", source: "p1", label: "barrier" }] }),
+    );
+    expect(chips[0]).toEqual({ text: "Barrier 18", tone: "defense" });
+  });
+});
+
+describe("barrier narration", () => {
+  it("narrates a barrier being raised", () => {
+    expect(
+      narrateResult(ev({ kind: "barrier", actor: "p1", target: "p1", outcome: "applied", effect: { kind: "barrier", barrier_remaining: 18 } }), NAMES),
+    ).toBe("Ada raises a barrier (18 absorb).");
+  });
+  it("narrates a full absorb", () => {
+    expect(
+      narrateResult(ev({ kind: "damage", outcome: "blocked", amount: 0, effect: { kind: "barrier", barrier_absorbed: 15, barrier_remaining: 3 } }), NAMES),
+    ).toBe("Bo's barrier soaks the hit — 3 left.");
+  });
+  it("narrates a partial absorb with overflow", () => {
+    expect(
+      narrateResult(ev({ kind: "damage", outcome: "hit_knockback", amount: 5, effect: { kind: "barrier", barrier_absorbed: 10, barrier_remaining: 0 } }), NAMES),
+    ).toBe("Ada hits Bo for 5 — barrier soaks 10.");
+  });
+  it("narrates a shatter", () => {
+    expect(narrateResult(ev({ kind: "barrier_shatter", target: "p2", outcome: "shattered" }), NAMES)).toBe(
+      "Bo's barrier shatters!",
+    );
+  });
+});
+
+describe("ledgerLines", () => {
+  it("renders a committed turn's beats via narrateResult", () => {
+    const entry: LedgerEntry = {
+      round: 2,
+      actor: "p1",
+      events: [
+        ev({ kind: "dot_tick", target: "p2", amount: 4, effect: { kind: "dot", label: "poison" } }),
+        ev({ kind: "damage", outcome: "hit_knockback", amount: 12 }),
+      ],
+    };
+    expect(ledgerLines(entry, NAMES)).toEqual(["Bo takes 4 poison damage.", "Ada hits Bo for 12."]);
   });
 });

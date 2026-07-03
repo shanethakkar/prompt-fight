@@ -2,7 +2,14 @@
 
 import { useState } from "react";
 import * as api from "@/lib/api";
-import type { Action, GameState, JudgeResponse, MatchConfig, ResolveResult } from "@/lib/types";
+import type {
+  Action,
+  GameState,
+  JudgeResponse,
+  LedgerEntry,
+  MatchConfig,
+  ResolveResult,
+} from "@/lib/types";
 import type { Phase } from "@/lib/game";
 import { StartScreen } from "./StartScreen";
 import { HandoffScreen } from "./HandoffScreen";
@@ -10,6 +17,7 @@ import { PromptPanel } from "./PromptPanel";
 import { CostPreview } from "./CostPreview";
 import { PlayerStatus } from "./PlayerStatus";
 import { PlaybackLog } from "./PlaybackLog";
+import { Ledger } from "./Ledger";
 import { VictoryScreen } from "./VictoryScreen";
 
 export default function GameBoard() {
@@ -21,6 +29,7 @@ export default function GameBoard() {
   const [preview, setPreview] = useState<JudgeResponse | null>(null);
   const [preState, setPreState] = useState<GameState | null>(null);
   const [lastResult, setLastResult] = useState<ResolveResult | null>(null);
+  const [ledger, setLedger] = useState<LedgerEntry[]>([]);
   const [busy, setBusy] = useState(false);
   const [inputError, setInputError] = useState<string | null>(null);
   const [sandbox, setSandbox] = useState(true);
@@ -40,6 +49,7 @@ export default function GameBoard() {
       setRewritesLeft(r.config.rewrites_per_turn);
       setPreview(null);
       setLastResult(null);
+      setLedger([]);
       setPhase("handoff");
     } catch {
       setInputError("Couldn't reach the backend. Is it running on :8000?");
@@ -107,6 +117,13 @@ export default function GameBoard() {
 
   function playbackDone() {
     if (!lastResult || !config) return;
+    // Record the just-committed turn (public beats only — no secrecy leak).
+    if (preState) {
+      setLedger((l) => [
+        ...l,
+        { round: preState.round, actor: preState.active, events: lastResult.events },
+      ]);
+    }
     setState(lastResult.state);
     if (lastResult.match_over) {
       setPhase("gameover");
@@ -156,6 +173,7 @@ export default function GameBoard() {
               />
             )}
           </div>
+          <Ledger entries={ledger} names={{ p1: state.p1.name, p2: state.p2.name }} />
         </div>
       )}
 

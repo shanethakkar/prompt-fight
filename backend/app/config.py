@@ -52,6 +52,7 @@ class ComponentWeights(BaseModel):
     hot: float
     stat: float
     defense: float
+    barrier: float
 
 
 class KindCooldowns(BaseModel):
@@ -106,6 +107,9 @@ class BalanceConfig(BaseModel):
     block_multiplier: float
     partial_dodge_damage_fraction: float
     reflect_return_fraction: float
+
+    barrier_pool_per_power: float
+    max_barriers_per_player: int
 
     damage_taken_per_point: float
     damage_taken_mult_floor: float
