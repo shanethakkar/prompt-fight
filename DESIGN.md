@@ -1,6 +1,8 @@
 # DESIGN.md — Open-Ended Effects, Game Modes & Reliability
 
-> **Status: agreed design direction (2026-07-02).** This is the north star the game is migrating toward. It **supersedes parts of the v1 closed-set design.** `SPEC.md` / `GAME_MECHANICS.md` / `JUDGE.md` describe the *currently implemented* engine (M0–M2); this file describes where we're going and how we get there in phases (§7). Until a phase lands, the implemented docs describe today's reality; where they conflict with this doc, this doc states intent.
+> **Status: agreed design direction (2026-07-02).** This is the north star the game is migrating toward. It **supersedes parts of the v1 closed-set design.** `SPEC.md` / `GAME_MECHANICS.md` / `JUDGE.md` describe the *currently implemented* engine; this file describes where we're going and how we get there in phases (§7). Until a phase lands, the implemented docs describe today's reality; where they conflict with this doc, this doc states intent.
+
+> **Update (2026-07-03):** playtesting drove a switch to **alternating one-by-one turns** (Worms-style) — clearer, and it converged defenses onto the persistent-effect model this doc anticipates (a shield is now a stance that soaks the next hit). Implemented in GAME_MECHANICS §1/§7. This lands **before** P1; P1 (reliability) additionally brings a seeded starting-player coin-flip and probabilistic evade (the open-info deterministic dodge is weak).
 
 ---
 

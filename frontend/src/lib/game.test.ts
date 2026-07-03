@@ -4,10 +4,28 @@ import {
   canRewrite,
   capitalize,
   describeAction,
+  narrateResult,
   pct,
+  statusChips,
   winnerLabel,
 } from "@/lib/game";
-import type { JudgeResponse, JudgedAction } from "@/lib/types";
+import type { JudgeResponse, JudgedAction, PlayerState, ResolutionEvent } from "@/lib/types";
+
+const NAMES = { p1: "Ada", p2: "Bo" } as const;
+
+function ev(over: Partial<ResolutionEvent>): ResolutionEvent {
+  return {
+    actor: "p1",
+    target: "p2",
+    template: "melee",
+    outcome: "hit_knockback",
+    damage: 0,
+    effect: null,
+    narration: "fx",
+    state_delta: { p1_hp: 100, p2_hp: 100, p1_mana: 10, p2_mana: 10 },
+    ...over,
+  };
+}
 
 const action: JudgedAction = {
   category: "attack",
@@ -90,5 +108,71 @@ describe("winnerLabel", () => {
     expect(winnerLabel("p1", "Ada", "Bo")).toBe("Ada wins!");
     expect(winnerLabel("p2", "Ada", "Bo")).toBe("Bo wins!");
     expect(winnerLabel("draw", "Ada", "Bo")).toBe("Draw!");
+  });
+});
+
+describe("narrateResult", () => {
+  it("narrates a clean hit", () => {
+    expect(narrateResult(ev({ outcome: "hit_knockback", damage: 18 }), NAMES)).toBe(
+      "Ada hits Bo for 18.",
+    );
+  });
+  it("narrates a partial through a shield", () => {
+    expect(
+      narrateResult(ev({ outcome: "partial", damage: 6, effect: { kind: "shield" } }), NAMES),
+    ).toBe("It gets through the shield — 6 to Bo.");
+  });
+  it("narrates a reflect back at the attacker", () => {
+    expect(
+      narrateResult(ev({ outcome: "reflected", target: "p1", damage: 9, effect: { kind: "reflect" } }), NAMES),
+    ).toBe("Reflected! 9 bounces back at Ada.");
+  });
+  it("narrates a debuff with stat/magnitude/duration", () => {
+    expect(
+      narrateResult(
+        ev({
+          outcome: "debuffed",
+          effect: { kind: "weaken", stat: "power", magnitude: 5, duration: 2 },
+        }),
+        NAMES,
+      ),
+    ).toBe("Bo is weakened: -5 power for 2 turns.");
+  });
+  it("narrates a heal at cap as no effect", () => {
+    expect(
+      narrateResult(ev({ actor: "p1", target: "p1", outcome: "healed", effect: { kind: "heal", magnitude: 0 } }), NAMES),
+    ).toBe("Ada is already at full health.");
+  });
+});
+
+describe("statusChips", () => {
+  function ps(over: Partial<PlayerState>): PlayerState {
+    return {
+      name: "P",
+      hp: 100,
+      mana: 10,
+      cooldowns: {},
+      active_buff: null,
+      active_debuff: null,
+      active_defense: null,
+      ...over,
+    };
+  }
+  it("labels a power buff readably", () => {
+    const chips = statusChips(ps({ active_buff: { power_shift: 5, speed_shift: 0, turns_remaining: 2 } }));
+    expect(chips[0]).toEqual({ text: "Empowered +5 pow · 2t", tone: "buff" });
+  });
+  it("labels a debuff and a cooldown", () => {
+    const chips = statusChips(
+      ps({ active_debuff: { power_shift: 4, speed_shift: 0, turns_remaining: 1 }, cooldowns: { heal: 2 } }),
+    );
+    expect(chips.map((c) => c.text)).toContain("Weakened -4 pow · 1t");
+    expect(chips.map((c) => c.text)).toContain("Heal ready in 2");
+  });
+  it("labels a shield stance", () => {
+    const chips = statusChips(
+      ps({ active_defense: { subtype: "shield", element: "physical", power: 4, speed: 5, turns_remaining: 1 } }),
+    );
+    expect(chips[0]).toEqual({ text: "Shield up", tone: "defense" });
   });
 });

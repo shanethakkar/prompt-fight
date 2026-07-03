@@ -1,10 +1,11 @@
-"""The pure combat resolver — the server-authoritative heart of the game.
+"""The pure combat resolver — alternating single-action turns (see DESIGN.md).
 
-`resolve(state, p1_action, p2_action, balance)` is a pure function: no I/O, input
-state untouched (deep-copied), deterministic output. It implements the rules in
-GAME_MECHANICS.md §7 exactly. See the M1 design notes for the pinned decisions:
-signed HP, snapshot-delta simultaneity, fixed damage pipeline, effect/cooldown
-staging, and deterministic (p1-before-p2) event ordering.
+`resolve_turn(state, action, balance)` resolves ONE action for `state.active`,
+against the current state (including the opponent's raised defensive stance),
+then advances the turn. Pure: no I/O, input untouched (deep-copied), one event
+out. The M1 damage/type/effect math (rules.py) is reused; only the turn
+orchestration changed (no simultaneity → no speed-ordering, snapshot-delta,
+double-KO tiebreak, or defense-priority tier). See GAME_MECHANICS.md §7.
 """
 
 from __future__ import annotations
@@ -13,14 +14,17 @@ from typing import Literal
 
 from app.config import BalanceConfig
 from app.models import (
+    ActiveDefense,
     ActiveEffect,
     Category,
+    EffectSummary,
     GameState,
     JudgedAction,
     Outcome,
     PlayerState,
     ResolutionEvent,
     ResolveResult,
+    Side,
     Stat,
     Subtype,
 )
@@ -29,13 +33,11 @@ from app.rules import (
     category_cooldown,
     effective_power,
     effective_speed,
-    is_defense,
     mana_cost,
     type_multiplier,
 )
 
-PID = Literal["p1", "p2"]
-_OPPONENT: dict[str, PID] = {"p1": "p2", "p2": "p1"}
+_OPPONENT: dict[str, Side] = {"p1": "p2", "p2": "p1"}
 
 
 def initial_game(
@@ -43,16 +45,13 @@ def initial_game(
     p1_name: str = "Player 1",
     p2_name: str = "Player 2",
 ) -> GameState:
-    """Build a fresh match state from balance defaults."""
-
     def _player(name: str) -> PlayerState:
         return PlayerState(name=name, hp=balance.hp_start, mana=balance.mana_start)
 
-    return GameState(turn=1, p1=_player(p1_name), p2=_player(p2_name))
+    return GameState(round=1, active="p1", p1=_player(p1_name), p2=_player(p2_name))
 
 
-def _display_state(players: dict[str, PlayerState], balance: BalanceConfig) -> dict[str, int]:
-    """Post-event snapshot for the renderer: HP floored to [0, max], mana as-is."""
+def _display(players: dict[str, PlayerState], balance: BalanceConfig) -> dict[str, int]:
     return {
         "p1_hp": max(0, min(balance.hp_max, players["p1"].hp)),
         "p2_hp": max(0, min(balance.hp_max, players["p2"].hp)),
@@ -61,211 +60,187 @@ def _display_state(players: dict[str, PlayerState], balance: BalanceConfig) -> d
     }
 
 
-def _event(
-    pid: PID,
-    action: JudgedAction,
-    outcome: Outcome,
-    damage: int,
-    players: dict[str, PlayerState],
-    balance: BalanceConfig,
-) -> ResolutionEvent:
-    assert action.template is not None  # normalized in JudgedAction validator
-    return ResolutionEvent(
-        actor=pid,
-        template=action.template,
-        outcome=outcome,
-        damage=damage,
-        narration=action.flavor_text,
-        state_delta=_display_state(players, balance),
-    )
-
-
-def _attack_plan(
-    atk_pid: PID,
-    opp_pid: PID,
-    actions: dict[str, JudgedAction],
-    eff_power: dict[str, int],
-    eff_speed: dict[str, int],
-    defenders: set[str],
-    balance: BalanceConfig,
-) -> tuple[PID, int, Outcome, int]:
-    """Resolve an attack to (target, signed_hp_delta, outcome, damage_to_show).
-
-    Fixed pipeline: raw = eff_power x dmg_mult; x type chart (only vs a defending
-    element); then mitigation on the typed value; floor 0.
-    """
-    atk = actions[atk_pid]
-    raw = eff_power[atk_pid] * balance.attack_damage_multiplier
-
-    if opp_pid not in defenders:
-        # Undefended: elements are inert (no defender element), so neutral x1.0.
-        dmg = max(0, round(raw))
-        return opp_pid, -dmg, Outcome.hit_knockback, dmg
-
-    defense = actions[opp_pid]
-    typed = raw * type_multiplier(atk.element, defense.element, balance)
-
-    if defense.subtype == Subtype.shield:
-        block = eff_power[opp_pid] * balance.block_multiplier
-        dmg = max(0, round(typed - block))
-        outcome = Outcome.blocked if dmg == 0 else Outcome.partial
-        return opp_pid, -dmg, outcome, dmg
-
-    if defense.subtype == Subtype.dodge:
-        if eff_speed[opp_pid] >= eff_speed[atk_pid]:
-            return opp_pid, 0, Outcome.dodged, 0
-        dmg = max(0, round(typed * balance.partial_dodge_damage_fraction))
-        return opp_pid, -dmg, Outcome.partial, dmg
-
-    # reflect
-    if eff_power[opp_pid] >= eff_power[atk_pid]:
-        returned = max(0, round(typed * balance.reflect_return_fraction))
-        # Reflected damage lands on the attacker; not further type-charted.
-        return atk_pid, -returned, Outcome.reflected, returned
-    absorb = eff_power[opp_pid] * balance.block_multiplier
-    dmg = max(0, round(typed - absorb))
-    outcome = Outcome.blocked if dmg == 0 else Outcome.partial
-    return opp_pid, -dmg, outcome, dmg
-
-
-def _make_effect(action: JudgedAction, balance: BalanceConfig) -> ActiveEffect:
-    shift = buff_shift(action, balance)
-    turns = balance.buff_debuff_duration_turns
-    if action.stat == Stat.speed:
-        return ActiveEffect(speed_shift=shift, turns_remaining=turns)
-    return ActiveEffect(power_shift=shift, turns_remaining=turns)
-
-
-def resolve(
-    state: GameState,
-    p1_action: JudgedAction,
-    p2_action: JudgedAction,
-    balance: BalanceConfig,
-) -> ResolveResult:
-    ns = state.model_copy(deep=True)  # input immutability contract
-    players: dict[str, PlayerState] = {"p1": ns.p1, "p2": ns.p2}
-    actions: dict[str, JudgedAction] = {"p1": p1_action, "p2": p2_action}
-    events: list[ResolutionEvent] = []
-
-    # 1. Mana costs (base power), deducted for both, floored at 0.
-    for pid in ("p1", "p2"):
-        players[pid].mana = max(0, players[pid].mana - mana_cost(actions[pid], balance))
-
-    # 2. Effective stats from turn-start buffs/debuffs (this turn's buffs don't apply).
-    eff_power: dict[str, int] = {}
-    eff_speed: dict[str, int] = {}
-    for pid in ("p1", "p2"):
-        p = players[pid]
-        eff_power[pid] = effective_power(actions[pid], p.active_buff, p.active_debuff)
-        eff_speed[pid] = effective_speed(actions[pid], p.active_buff, p.active_debuff)
-
-    # Staging slots — installed at end-of-turn upkeep so they first bite next turn.
-    pending_buff: dict[str, ActiveEffect | None] = {"p1": None, "p2": None}
-    pending_debuff: dict[str, ActiveEffect | None] = {"p1": None, "p2": None}
-    pending_cd: dict[str, dict[Category, int]] = {"p1": {}, "p2": {}}
-
-    # 3. Defense priority tier: all defenses activate first (p1 then p2).
-    defenders = {pid for pid in ("p1", "p2") if is_defense(actions[pid])}
-    for pid in ("p1", "p2"):
-        if pid in defenders:
-            act = actions[pid]
-            events.append(_event(pid, act, Outcome.defended, 0, players, balance))
-            pending_cd[pid][act.category] = category_cooldown(act, balance)
-
-    # 4. Non-defense actors grouped by effective speed (descending; ties simultaneous).
-    actors = [pid for pid in ("p1", "p2") if pid not in defenders]
-    if len(actors) == 2:
-        if eff_speed["p1"] == eff_speed["p2"]:
-            groups: list[list[PID]] = [["p1", "p2"]]
-        elif eff_speed["p1"] > eff_speed["p2"]:
-            groups = [["p1"], ["p2"]]
-        else:
-            groups = [["p2"], ["p1"]]
-    elif len(actors) == 1:
-        groups = [[actors[0]]]  # type: ignore[list-item]
-    else:
-        groups = []
-
-    # 5. Resolve groups top-speed first, snapshot-delta within a group.
-    ko = False
-    for group in groups:
-        if ko:
-            for pid in group:
-                events.append(_event(pid, actions[pid], Outcome.fizzled, 0, players, balance))
-            continue
-
-        deltas: dict[str, int] = {"p1": 0, "p2": 0}
-        specs: list[tuple[PID, JudgedAction, Outcome, int]] = []
-        for pid in group:  # p1 before p2 within a simultaneous group
-            act = actions[pid]
-            opp = _OPPONENT[pid]
-            if act.category == Category.attack:
-                target, delta, outcome, dmg = _attack_plan(
-                    pid, opp, actions, eff_power, eff_speed, defenders, balance
-                )
-                deltas[target] += delta
-                specs.append((pid, act, outcome, dmg))
-            elif act.category == Category.heal:
-                amount = round(eff_power[pid] * balance.heal_multiplier)
-                deltas[pid] += amount
-                specs.append((pid, act, Outcome.healed, amount))
-            elif act.category == Category.buff:
-                pending_buff[pid] = _make_effect(act, balance)
-                specs.append((pid, act, Outcome.buffed, 0))
-            elif act.category == Category.debuff:
-                pending_debuff[opp] = _make_effect(act, balance)
-                specs.append((pid, act, Outcome.debuffed, 0))
-            pending_cd[pid][act.category] = category_cooldown(act, balance)
-
-        # Apply summed deltas once vs the group's start HP: cap at max, never floor.
-        for tid in ("p1", "p2"):
-            if deltas[tid] != 0:
-                players[tid].hp = min(balance.hp_max, players[tid].hp + deltas[tid])
-        for pid, act, outcome, dmg in specs:
-            events.append(_event(pid, act, outcome, dmg, players, balance))
-        if players["p1"].hp <= 0 or players["p2"].hp <= 0:
-            ko = True
-
-    # 7. End-of-turn upkeep, both players, in exact order.
-    for pid in ("p1", "p2"):
-        p = players[pid]
-        # (a) decrement pre-existing effects; drop expired.
-        for slot in ("active_buff", "active_debuff"):
-            eff: ActiveEffect | None = getattr(p, slot)
-            if eff is not None:
-                eff.turns_remaining -= 1
-                if eff.turns_remaining <= 0:
-                    setattr(p, slot, None)
-        # (b) tick pre-existing cooldowns.
-        p.cooldowns = {c: t - 1 for c, t in p.cooldowns.items() if t - 1 > 0}
-        # (c) install pending effects/cooldowns (not decremented this turn).
-        if pending_buff[pid] is not None:
-            p.active_buff = pending_buff[pid]
-        if pending_debuff[pid] is not None:
-            p.active_debuff = pending_debuff[pid]
-        for cat, turns in pending_cd[pid].items():
-            if turns > 0:
-                p.cooldowns[cat] = turns
-        # (d) mana regen (capped).
-        p.mana = min(balance.mana_max, p.mana + balance.mana_regen_per_turn)
-
-    # 8. Match-over check (winner from signed HP), then floor HP for display.
-    p1_hp, p2_hp = players["p1"].hp, players["p2"].hp
-    # Match ends on a KO (either HP <= 0) or when the turn cap is reached; in
-    # both cases the higher (signed) HP wins, equal is a draw.
-    match_over = p1_hp <= 0 or p2_hp <= 0 or state.turn >= balance.max_turns
-    winner: Literal["p1", "p2", "draw"] | None = _higher_hp(p1_hp, p2_hp) if match_over else None
-
-    ns.turn = state.turn + 1
-    players["p1"].hp = max(0, min(balance.hp_max, p1_hp))
-    players["p2"].hp = max(0, min(balance.hp_max, p2_hp))
-
-    return ResolveResult(events=events, state=ns, match_over=match_over, winner=winner)
-
-
-def _higher_hp(p1_hp: int, p2_hp: int) -> Literal["p1", "p2", "draw"]:
+def _higher_hp(p1_hp: int, p2_hp: int) -> Side | Literal["draw"]:
     if p1_hp > p2_hp:
         return "p1"
     if p2_hp > p1_hp:
         return "p2"
     return "draw"
+
+
+def _attack(
+    a_side: Side,
+    o_side: Side,
+    opponent: PlayerState,
+    action: JudgedAction,
+    eff_power: int,
+    eff_speed: int,
+    balance: BalanceConfig,
+) -> tuple[Side, int, Outcome, EffectSummary | None]:
+    """Resolve an attack vs the opponent's frozen defensive stance (consumed on use).
+
+    Returns (target, damage, outcome, effect). Pipeline: raw -> type chart (only
+    vs a defending element) -> mitigation -> floor 0.
+    """
+    raw = eff_power * balance.attack_damage_multiplier
+    stance = opponent.active_defense
+    if stance is None:
+        dmg = max(0, round(raw))  # undefended -> elements inert (neutral)
+        return o_side, dmg, Outcome.hit_knockback, None
+
+    typed = raw * type_multiplier(action.element, stance.element, balance)
+    typed_i = max(0, round(typed))
+    opponent.active_defense = None  # consume-on-hit
+
+    if stance.subtype == Subtype.shield:
+        block = stance.power * balance.block_multiplier
+        dmg = max(0, round(typed - block))
+        outcome = Outcome.blocked if dmg == 0 else Outcome.partial
+        return o_side, dmg, outcome, EffectSummary(kind="shield", absorbed=max(0, typed_i - dmg))
+
+    if stance.subtype == Subtype.dodge:
+        if stance.speed >= eff_speed:
+            return o_side, 0, Outcome.dodged, EffectSummary(kind="dodge", absorbed=typed_i)
+        dmg = max(0, round(typed * balance.partial_dodge_damage_fraction))
+        return (
+            o_side,
+            dmg,
+            Outcome.partial,
+            EffectSummary(kind="dodge", absorbed=max(0, typed_i - dmg)),
+        )
+
+    # reflect
+    if stance.power >= eff_power:
+        returned = max(0, round(typed * balance.reflect_return_fraction))
+        return a_side, returned, Outcome.reflected, EffectSummary(kind="reflect")
+    absorb = stance.power * balance.block_multiplier
+    dmg = max(0, round(typed - absorb))
+    outcome = Outcome.blocked if dmg == 0 else Outcome.partial
+    return o_side, dmg, outcome, EffectSummary(kind="reflect", absorbed=max(0, typed_i - dmg))
+
+
+def _make_effect(stat: Stat | None, shift: int, duration: int) -> ActiveEffect:
+    eff = ActiveEffect(turns_remaining=duration)
+    if stat == Stat.speed:
+        eff.speed_shift = shift
+    else:
+        eff.power_shift = shift
+    return eff
+
+
+def resolve_turn(state: GameState, action: JudgedAction, balance: BalanceConfig) -> ResolveResult:
+    """Resolve one action for the active player and advance the turn."""
+    ns = state.model_copy(deep=True)  # input immutability
+    a_side = ns.active
+    o_side = _OPPONENT[a_side]
+    active = ns.p1 if a_side == "p1" else ns.p2
+    opponent = ns.p1 if o_side == "p1" else ns.p2
+    players = {"p1": ns.p1, "p2": ns.p2}
+
+    if active.hp <= 0 or opponent.hp <= 0:
+        raise ValueError("cannot resolve a turn for a match that is already over")
+
+    assert action.template is not None  # normalized in the JudgedAction validator
+
+    # 1. Effective stats from the active player's current buff/debuff.
+    eff_power = effective_power(action, active.active_buff, active.active_debuff)
+    eff_speed = effective_speed(action, active.active_buff, active.active_debuff)
+
+    # 2. Pay mana (base power), floor 0.
+    active.mana = max(0, active.mana - mana_cost(action, balance))
+
+    # 3. Apply the action. Newly-created SELF effects are staged (installed after
+    #    the end-of-turn tick); a debuff lands on the opponent's slot now (it is
+    #    the opponent's effect and only ticks on their turns).
+    duration = balance.buff_debuff_duration_turns
+    pending_buff: ActiveEffect | None = None
+    pending_defense: ActiveDefense | None = None
+    target: Side = o_side
+    outcome = Outcome.hit_knockback
+    damage = 0
+    effect: EffectSummary | None = None
+    cat = action.category
+
+    if cat == Category.attack:
+        target, damage, outcome, effect = _attack(
+            a_side, o_side, opponent, action, eff_power, eff_speed, balance
+        )
+        hit = active if target == a_side else opponent
+        hit.hp = max(0, hit.hp - damage)
+    elif cat == Category.heal:
+        before = active.hp
+        active.hp = min(balance.hp_max, active.hp + round(eff_power * balance.heal_multiplier))
+        target, outcome = a_side, Outcome.healed
+        effect = EffectSummary(kind="heal", magnitude=active.hp - before)
+    elif cat == Category.defense:
+        pending_defense = ActiveDefense(
+            subtype=action.subtype,
+            element=action.element,
+            power=eff_power,
+            speed=eff_speed,
+            turns_remaining=balance.defense_stance_duration_turns,
+        )
+        target, outcome = a_side, Outcome.defended
+        effect = EffectSummary(kind=action.subtype.value)
+    elif cat == Category.buff:
+        shift = buff_shift(action, balance)
+        pending_buff = _make_effect(action.stat, shift, duration)
+        target, outcome = a_side, Outcome.buffed
+        kind = "hasten" if action.stat == Stat.speed else "empower"
+        effect = EffectSummary(kind=kind, stat=action.stat, magnitude=shift, duration=duration)
+    elif cat == Category.debuff:
+        shift = buff_shift(action, balance)
+        opponent.active_debuff = _make_effect(action.stat, shift, duration)
+        target, outcome = o_side, Outcome.debuffed
+        kind = "slow" if action.stat == Stat.speed else "weaken"
+        effect = EffectSummary(kind=kind, stat=action.stat, magnitude=shift, duration=duration)
+
+    new_cd = category_cooldown(action, balance)
+
+    # 4. End-of-turn upkeep for the ACTIVE player only (use-before-decrement,
+    #    install-after-tick), then mana regen so their next input shows spendable
+    #    mana. The opponent's effects/cooldowns tick on the opponent's own turns.
+    for slot in ("active_buff", "active_debuff", "active_defense"):
+        eff: ActiveEffect | ActiveDefense | None = getattr(active, slot)
+        if eff is not None:
+            eff.turns_remaining -= 1
+            if eff.turns_remaining <= 0:
+                setattr(active, slot, None)
+    active.cooldowns = {c: t - 1 for c, t in active.cooldowns.items() if t - 1 > 0}
+    if pending_buff is not None:
+        active.active_buff = pending_buff
+    if pending_defense is not None:
+        active.active_defense = pending_defense
+    if new_cd > 0:
+        active.cooldowns[cat] = new_cd
+    active.mana = min(balance.mana_max, active.mana + balance.mana_regen_per_turn)
+
+    event = ResolutionEvent(
+        actor=a_side,
+        target=target,
+        template=action.template,
+        outcome=outcome,
+        damage=damage,
+        effect=effect,
+        narration=action.flavor_text,
+        state_delta=_display(players, balance),
+    )
+
+    # 5. Match-over check + advance the turn. A death (only the active player can
+    #    deal damage this turn) ends it immediately; otherwise the turn cap is
+    #    checked only at a round boundary (after p2 acts) so actions are equal.
+    match_over = False
+    winner: Side | Literal["draw"] | None = None
+    if opponent.hp <= 0:
+        match_over, winner = True, a_side
+    elif active.hp <= 0:  # e.g. reflected onto the attacker
+        match_over, winner = True, o_side
+    elif a_side == "p1":
+        ns.active = "p2"
+    else:
+        ns.active = "p1"
+        ns.round = state.round + 1
+        if ns.round > balance.max_turns:
+            match_over, winner = True, _higher_hp(ns.p1.hp, ns.p2.hp)
+
+    return ResolveResult(events=[event], state=ns, match_over=match_over, winner=winner)

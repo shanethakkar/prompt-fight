@@ -1,5 +1,12 @@
 import type { MatchConfig, PlayerState } from "@/lib/types";
-import { capitalize, pct } from "@/lib/game";
+import { pct, statusChips, type ChipTone } from "@/lib/game";
+
+const CHIP_CLASS: Record<ChipTone, string> = {
+  buff: "bg-emerald-900/60 text-emerald-300",
+  debuff: "bg-rose-900/60 text-rose-300",
+  defense: "bg-sky-900/60 text-sky-300",
+  cooldown: "bg-zinc-800 text-zinc-400",
+};
 
 export function Bar({
   label,
@@ -39,7 +46,7 @@ export function PlayerStatus({
   config: MatchConfig;
   active?: boolean;
 }) {
-  const cooldowns = Object.entries(player.cooldowns).filter(([, t]) => t > 0);
+  const chips = statusChips(player);
   return (
     <div
       className={`flex flex-col gap-2 rounded-xl border p-3 ${
@@ -49,23 +56,13 @@ export function PlayerStatus({
       <div className="font-semibold">{player.name}</div>
       <Bar label="HP" value={player.hp} max={config.hp_max} color="bg-emerald-500" />
       <Bar label="Mana" value={player.mana} max={config.mana_max} color="bg-sky-500" />
-      {(cooldowns.length > 0 || player.active_buff || player.active_debuff) && (
+      {chips.length > 0 && (
         <div className="flex flex-wrap gap-1 text-[10px]">
-          {cooldowns.map(([cat, t]) => (
-            <span key={cat} className="rounded bg-zinc-800 px-1.5 py-0.5 text-zinc-400">
-              {capitalize(cat)} CD {t}
+          {chips.map((c, i) => (
+            <span key={i} className={`rounded px-1.5 py-0.5 ${CHIP_CLASS[c.tone]}`}>
+              {c.text}
             </span>
           ))}
-          {player.active_buff && (
-            <span className="rounded bg-emerald-900/60 px-1.5 py-0.5 text-emerald-300">
-              Buff {player.active_buff.turns_remaining}
-            </span>
-          )}
-          {player.active_debuff && (
-            <span className="rounded bg-rose-900/60 px-1.5 py-0.5 text-rose-300">
-              Debuff {player.active_debuff.turns_remaining}
-            </span>
-          )}
         </div>
       )}
     </div>

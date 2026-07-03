@@ -181,8 +181,10 @@ class JudgedAction(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Game state (SPEC.md §6)
+# Game state (SPEC.md §6) — alternating single-action turns (see DESIGN.md)
 # ---------------------------------------------------------------------------
+
+Side = Literal["p1", "p2"]
 
 
 class ActiveEffect(BaseModel):
@@ -192,6 +194,20 @@ class ActiveEffect(BaseModel):
 
     power_shift: int = 0
     speed_shift: int = 0
+    turns_remaining: int
+
+
+class ActiveDefense(BaseModel):
+    """A raised defensive stance. Effective stats are FROZEN at cast time, since
+    the block happens on the opponent's turn. Consumed on hit, else expires at
+    the owner's next end-of-turn upkeep."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    subtype: Subtype  # shield | dodge | reflect
+    element: Element
+    power: int  # effective power at cast
+    speed: int  # effective speed at cast
     turns_remaining: int
 
 
@@ -205,25 +221,43 @@ class PlayerState(BaseModel):
     cooldowns: dict[Category, int] = Field(default_factory=dict)
     active_buff: ActiveEffect | None = None
     active_debuff: ActiveEffect | None = None
+    active_defense: ActiveDefense | None = None
 
 
 class GameState(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    turn: int = 1
+    round: int = 1
+    active: Side = "p1"  # whose turn it is
     p1: PlayerState
     p2: PlayerState
 
 
-class ResolutionEvent(BaseModel):
-    """One entry in the ordered playback list the renderer animates (SPEC.md §6)."""
+class EffectSummary(BaseModel):
+    """Structured, narratable detail of a non-trivial result. Fields are populated
+    per kind (empower/hasten/weaken/slow/shield/dodge/reflect/heal); the client
+    templates a readable sentence from it."""
 
     model_config = ConfigDict(extra="forbid")
 
-    actor: Literal["p1", "p2"]
+    kind: str
+    stat: Stat | None = None
+    magnitude: int | None = None
+    duration: int | None = None
+    absorbed: int | None = None
+
+
+class ResolutionEvent(BaseModel):
+    """The result of one action, for playback (SPEC.md §6)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    actor: Side
+    target: Side
     template: Template
     outcome: Outcome
     damage: int = 0
+    effect: EffectSummary | None = None
     narration: str = ""
     # Post-event snapshot for the renderer: display HP/mana of both players.
     state_delta: dict[str, int] = Field(default_factory=dict)
@@ -235,4 +269,4 @@ class ResolveResult(BaseModel):
     events: list[ResolutionEvent]
     state: GameState
     match_over: bool
-    winner: Literal["p1", "p2", "draw"] | None = None
+    winner: Side | Literal["draw"] | None = None

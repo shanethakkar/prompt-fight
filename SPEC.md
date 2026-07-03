@@ -97,9 +97,10 @@ Response (moderation reject): `{ "error": "moderation", "message": str, "rewrite
 `JudgedAction` schema is defined once in `JUDGE.md` §4 and mirrored as a Pydantic model + TypeScript type. **Mana cost is computed server-side** from the judge's power/category via the formula in `balance.json` — the LLM never sets costs directly.
 
 ### POST /api/resolve
-Request: `{ "match_id": str, "state": <GameState>, "p1_action": <JudgedAction>, "p2_action": <JudgedAction> }`
-Response: `{ "events": [<ResolutionEvent>...], "state": <GameState>, "match_over": bool, "winner": "p1"|"p2"|"draw"|null }`
-`ResolutionEvent` = `{ "actor": "p1"|"p2", "template": str, "outcome": str, "damage": int, "narration": str, "state_delta": {...} }` — the exact playback list the renderer animates.
+Alternating turns: resolves **one** action for the active player (`state.active`).
+Request: `{ "match_id": str, "state": <GameState>, "action": <JudgedAction> }`
+Response: `{ "events": [<ResolutionEvent>], "state": <GameState>, "match_over": bool, "winner": "p1"|"p2"|"draw"|null }`. `GameState` = `{ round, active, p1, p2 }`; a resolved/over match returns **400**.
+`ResolutionEvent` = `{ "actor", "target", "template", "outcome", "damage", "effect": <EffectSummary>|null, "narration", "state_delta" }` — one event per turn. `effect` carries the structured result (kind/stat/magnitude/duration/absorbed) the client templates into a readable line.
 
 ## 7. Moderation
 

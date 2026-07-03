@@ -6,21 +6,20 @@
 
 ## 1. Match structure
 
-- Two players, local hot-seat (one device, pass-and-play with hidden-input handoff screens).
-- **Simultaneous turns:** both players secretly submit one action; actions resolve together.
-- **One action per turn.** Always. No exceptions, no multi-effect actions.
-- Match ends when a player's HP ≤ 0. If both reach ≤ 0 in the same resolution, the player at higher HP wins; equal → draw.
-- Max-turn cap (default 30): at cap, higher remaining HP wins; equal → draw.
+- Two players, local hot-seat (one device, pass-and-play). **Open info** — no hidden inputs.
+- **Alternating single-action turns (Worms-style):** P1 acts, the result plays out, then P2 acts, then P1… (P1 starts; seeded starter-randomization is a P1 follow-up). Each turn the active player takes exactly **one** action, resolved immediately against the current state (including the opponent's raised defensive stance).
+- Match ends the instant a player's HP reaches 0. Only the active player deals damage on their turn, so a double-KO is impossible — **HP floors at 0** (no signed accounting).
+- **Round cap:** `max_turns` (default 30) counts **rounds** (one turn each). It is checked only at a **round boundary** (after P2 acts) so both players have taken equal actions; then higher HP wins, equal → draw.
 
 ## 2. Resources
 
 | Resource | Start | Max | Regen |
 |---|---|---|---|
 | HP | 100 | 100 | none |
-| Mana | 10 | 20 | +3 at start of each turn |
+| Mana | 10 | 20 | +3 at the end of each of your own turns |
 
 - Actions cost mana (see §5). You cannot confirm an action you can't afford.
-- Mana regen happens before the input phase, so displayed mana is spendable mana.
+- Regen is applied at the **end** of your turn, so the mana shown when it's your turn to act is exactly what's spendable.
 
 ## 3. Action categories (closed set)
 
@@ -59,28 +58,25 @@ This is the power-scaling throttle: "I collapse a black hole onto you" is legal 
 - **Heavy-move rule:** any action with power ≥ 8 adds +1 turn to its category's cooldown.
 - A category on cooldown cannot be selected; the judge response is checked against the player's cooldown state at confirm time.
 
-## 7. Resolution order (within a turn)
+## 7. Resolving a turn (one action)
 
-1. **Priority tier — Defense first.** All Defense actions activate at the start of resolution regardless of speed (a shield raised is up for the whole turn). A defense always resolves (it can never be KO'd before acting) and always incurs its cooldown.
-2. **Everything else resolves in descending *effective* speed order.** Ties resolve simultaneously.
-3. **KO check between resolutions:** if the faster action reduces a player to ≤ 0 HP, the slower action does not resolve (it "fizzles"). Simultaneous ties both resolve, then the §1 tiebreak applies.
+Each turn the **active player A** takes one action against **opponent O**, resolved in this order:
 
-### HP accounting and simultaneity
-- **HP is a signed running total during resolution:** it is upper-bounded by `hp_max` (heals cannot overheal) but is **never floored to 0 mid-resolution**. A player is KO'd when HP ≤ 0. The returned state floors HP to `[0, hp_max]` for display.
-- **Double-KO tiebreak uses the signed values:** if both players are ≤ 0 in the same resolution, the one with the **higher (less-negative) HP wins**; exactly equal is a draw. (This is why HP isn't clamped early — otherwise both would read 0 and every double-KO would be a draw.)
-- **Simultaneous (speed-tie) actions use snapshot-delta:** each computes its HP change against the same turn-start HP, then the changes are summed and applied once. Consequence: **a simultaneous heal can save you from otherwise-lethal simultaneous damage** (net change is what matters).
-- **Event order is deterministic:** defense-activation events first (P1 then P2), then resolving actions in descending speed; within a speed tie, P1 before P2.
+1. **Effective stats** for A are computed from A's current buff/debuff (`base + buff − debuff`, power floored 0 / speed floored 1). **Base** power still drives mana cost, the heavy-move cooldown bump, and buff/debuff magnitude.
+2. **Pay** A's mana cost (base power), floor 0.
+3. **Apply** the action: attack (vs O's stance, below), defense (raise a stance on A), buff (on A), debuff (on O), or heal (A, capped). HP floors at 0. Emit one event.
+4. **Match-over check**, then advance the turn (P1↔P2; a P2 action closes the round and checks the round cap, §1).
 
-### Effect and cooldown timing (staging)
-Buffs, debuffs, and cooldowns created *this* turn are staged and installed during end-of-turn upkeep, in this order per player: (a) decrement pre-existing buff/debuff timers and drop expired ones; (b) tick pre-existing cooldowns down by 1; (c) install the newly-created effects/cooldowns; (d) apply mana regen (capped). Because new effects are installed *after* the decrement, **a buff cast on turn T first bites on turn T+1 and lasts exactly `duration` turns; a cooldown-N move blocks exactly the next N turns.** A buff never affects the caster's own action on the turn it is cast (that action is the buff itself).
+### Effect / cooldown timing (owner-turn, install-after-tick)
+Durations and cooldowns count in the **owner's own turns**. At the **end of A's turn** (use-before-decrement, so an effect A *used* this turn still ticks after use): (a) decrement A's active buff/debuff/defense timers, drop expired; (b) tick A's cooldowns; (c) install A's newly-created effect + this action's cooldown; (d) mana regen A (capped). O's effects/cooldowns are untouched on A's turn — they tick on O's turns. Consequences: **a buff cast on your turn first bites on your *next* turn and lasts exactly `duration` of your turns; a cooldown-N move blocks exactly your next N turns.** A debuff lands on O immediately and weakens O's next `duration` turns (starting O's very next turn).
 
-### Defense interaction math
-Mitigation is applied to the *typed* damage (post-type-chart, §8) and applies to all three defense subtypes.
-- **Shield:** incoming damage reduced by `shield_effective_power × block_multiplier` (default ×3), floor 0.
-- **Dodge:** if `dodge_effective_speed ≥ attack_effective_speed`, take 0 damage; otherwise take `partial_dodge_damage_fraction` (default 50%) of the typed damage. (Only dodge consumes speed; shield/reflect speed is unused.)
-- **Reflect:** if `reflect_effective_power ≥ attack_effective_power`, negate the hit and return `reflect_return_fraction` (default 50%) of the typed damage **to the attacker** (this can itself KO the attacker; the returned damage is not further type-charted). Otherwise absorb `reflect_effective_power × block_multiplier` and the defender takes the remainder, floor 0.
-- Mana is charged for both players' actions even if one later fizzles (the fizzled actor is already KO'd, so it is unobservable). A fizzled action incurs no cooldown.
-- Defense actions only affect incoming actions this turn; they do not persist.
+### Defenses are stances (not same-turn mitigation)
+A defense raised on your turn doesn't block anything yet — it **persists as a stance** that mitigates the opponent's *next* attack. Its effective power/speed/element are **frozen at cast** (the block happens on the opponent's turn, so recomputing would be ambiguous). A stance is **consumed the moment it mitigates an attack**, and otherwise **expires at the start of your next turn** (`defense_stance_duration_turns`, default 1). Single slot — recasting replaces. Mitigation is applied to the *typed* damage (post-type-chart, §8):
+- **Shield:** incoming damage reduced by `shield_power × block_multiplier` (default ×3), floor 0.
+- **Dodge:** if `dodge_speed ≥ attacker's effective speed`, take 0 damage; otherwise take `partial_dodge_damage_fraction` (default 50%) of the typed damage.
+- **Reflect:** if `reflect_power ≥ attacker's effective power`, negate the hit and return `reflect_return_fraction` (default 50%) of the typed damage **to the attacker** (can KO the attacker; not further type-charted). Otherwise absorb `reflect_power × block_multiplier` and the defender takes the remainder, floor 0.
+
+*Open-info caveat: because both players see a raised stance, a deterministic dodge is easy to play around (attack with speed ≥ the visible dodge). The DESIGN P1 reliability system replaces this with a probabilistic evade.*
 
 ## 8. Elements and type chart
 
@@ -114,5 +110,6 @@ Online play, accounts, AI opponent (stub only), status-effect stacking beyond si
 ---
 
 *Changelog (append newest first):*
+- 2026-07-03 — **Turn model → alternating single-action turns** (Worms-style, was simultaneous). Resolver is now `resolve_turn(state, action)`; deleted speed-ordering / snapshot-delta / double-KO tiebreak / defense-priority tier. HP floors at 0. Effect/cooldown upkeep is end-of-*your*-turn (owner-turn timing). **Defenses are now persistent stances** (frozen at cast, consume-on-hit, expire next turn). Round cap checked at the round boundary. Events enriched (`target` + `effect` summary) for clear result narration. Judge/`JudgedAction` unchanged.
 - 2026-07-02 — M1 resolver: pinned previously-ambiguous rules — signed-HP double-KO tiebreak, snapshot-delta simultaneity, fixed damage pipeline (type chart before mitigation), effect/cooldown staging (buff bites T+1..T+duration; cooldown-N blocks exactly N turns), reflect returns to attacker + floors 0, elements inert vs. undefended targets, buff/debuff single-slot + `stat` field, base-vs-effective stat rules. Added `buff_debuff_stat_shift_per_power` (1.0). Added `JudgedAction.stat` (power|speed).
 - 2026-07-01 — Initial version from design sessions. All numeric values are pre-playtest placeholders.

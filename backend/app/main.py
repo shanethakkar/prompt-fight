@@ -9,14 +9,14 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import load_balance
 from app.judge import judge
 from app.models import ResolveResult
 from app.moderation import moderate
-from app.resolver import initial_game, resolve
+from app.resolver import initial_game, resolve_turn
 from app.rules import mana_cost
 from app.schemas import (
     JudgeRequest,
@@ -93,5 +93,8 @@ def api_judge(req: JudgeRequest) -> JudgeResponse:
 
 @app.post("/api/resolve", response_model=ResolveResult)
 def api_resolve(req: ResolveRequest) -> ResolveResult:
-    """Resolve both actions against the current state (pure server logic)."""
-    return resolve(req.state, req.p1_action, req.p2_action, load_balance())
+    """Resolve one action for the active player (pure server logic)."""
+    try:
+        return resolve_turn(req.state, req.action, load_balance())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e

@@ -95,6 +95,7 @@ class BalanceConfig(BaseModel):
     block_multiplier: float
     buff_debuff_duration_turns: int
     buff_debuff_stat_shift_per_power: float
+    defense_stance_duration_turns: int
     partial_dodge_damage_fraction: float
     reflect_return_fraction: float
 

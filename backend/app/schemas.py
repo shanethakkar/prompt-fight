@@ -41,12 +41,13 @@ class JudgeResponse(BaseModel):
 
 
 class ResolveRequest(BaseModel):
+    """Resolve one action for the active player (state.active)."""
+
     model_config = ConfigDict(extra="forbid")
 
     match_id: str
     state: GameState
-    p1_action: JudgedAction
-    p2_action: JudgedAction
+    action: JudgedAction
 
 
 class MatchConfig(BaseModel):

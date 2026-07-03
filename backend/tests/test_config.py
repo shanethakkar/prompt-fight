@@ -17,6 +17,7 @@ def test_known_values() -> None:
     assert cfg.judge_model == "claude-haiku-4-5"
     assert cfg.category_cost_multipliers.attack == 1.0
     assert cfg.buff_debuff_stat_shift_per_power == 1.0
+    assert cfg.defense_stance_duration_turns == 1
 
 
 def test_load_is_cwd_independent(tmp_path, monkeypatch) -> None:

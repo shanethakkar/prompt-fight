@@ -77,9 +77,19 @@ export interface JudgedAction {
   flavor_text: string;
 }
 
+export type Side = "p1" | "p2";
+
 export interface ActiveEffect {
   power_shift: number;
   speed_shift: number;
+  turns_remaining: number;
+}
+
+export interface ActiveDefense {
+  subtype: Subtype; // shield | dodge | reflect
+  element: Element;
+  power: number;
+  speed: number;
   turns_remaining: number;
 }
 
@@ -90,10 +100,12 @@ export interface PlayerState {
   cooldowns: Partial<Record<Category, number>>;
   active_buff: ActiveEffect | null;
   active_debuff: ActiveEffect | null;
+  active_defense: ActiveDefense | null;
 }
 
 export interface GameState {
-  turn: number;
+  round: number;
+  active: Side;
   p1: PlayerState;
   p2: PlayerState;
 }
@@ -105,13 +117,21 @@ export interface StateDelta {
   p2_mana: number;
 }
 
-export type Side = "p1" | "p2";
+export interface EffectSummary {
+  kind: string; // empower|hasten|weaken|slow|shield|dodge|reflect|heal
+  stat?: Stat | null;
+  magnitude?: number | null;
+  duration?: number | null;
+  absorbed?: number | null;
+}
 
 export interface ResolutionEvent {
   actor: Side;
+  target: Side;
   template: Template;
   outcome: Outcome;
   damage: number;
+  effect: EffectSummary | null;
   narration: string;
   state_delta: StateDelta;
 }
@@ -158,8 +178,7 @@ export interface JudgeResponse {
 export interface ResolveRequest {
   match_id: string;
   state: GameState;
-  p1_action: JudgedAction;
-  p2_action: JudgedAction;
+  action: JudgedAction;
 }
 
 export interface NewMatchResponse {

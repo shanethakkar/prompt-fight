@@ -103,7 +103,8 @@ def test_new_match():
     assert r.status_code == 200
     body = r.json()
     assert body["match_id"]
-    assert body["state"]["turn"] == 1
+    assert body["state"]["round"] == 1
+    assert body["state"]["active"] == "p1"
     assert body["state"]["p1"]["name"] == "Ada"
     assert body["state"]["p1"]["hp"] == 100 and body["state"]["p1"]["mana"] == 10
     cfg = body["config"]
@@ -131,37 +132,48 @@ def test_cors_headers_present():
 # ---- /api/resolve -----------------------------------------------------------
 
 
-def test_resolve_endpoint():
-    state = initial_game_json()
-    p1 = _fireball()
-    p2 = JudgedAction(
-        category="attack", subtype="melee", element="physical", power=1, speed=1, flavor_text="jab"
-    )
-    r = client.post(
-        "/api/resolve",
-        json={
-            "match_id": "m1",
-            "state": state,
-            "p1_action": p1.model_dump(mode="json"),
-            "p2_action": p2.model_dump(mode="json"),
-        },
-    )
-    assert r.status_code == 200
-    body = r.json()
-    # p1 faster (speed 6 > 1); undefended fireball = 6*3 = 18 -> p2 100 -> 82
-    assert body["state"]["p2"]["hp"] == 82
-    assert body["match_over"] is False
-    assert [e["actor"] for e in body["events"]] == ["p1", "p2"]
-
-
 def initial_game_json() -> dict:
     from app.config import load_balance
 
     return initial_game(load_balance()).model_dump(mode="json")
 
 
+def test_resolve_endpoint():
+    # active p1 attacks undefended p2: 6*3 = 18 -> p2 82; turn passes to p2.
+    r = client.post(
+        "/api/resolve",
+        json={
+            "match_id": "m1",
+            "state": initial_game_json(),
+            "action": _fireball().model_dump(mode="json"),
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["state"]["p2"]["hp"] == 82
+    assert body["state"]["active"] == "p2"
+    assert body["match_over"] is False
+    assert body["events"][0]["actor"] == "p1"
+
+
+def test_resolve_over_match_rejected():
+    dead = GameState(
+        p1=PlayerState(name="P1", hp=100, mana=10),
+        p2=PlayerState(name="P2", hp=0, mana=10),
+    )
+    r = client.post(
+        "/api/resolve",
+        json={
+            "match_id": "m1",
+            "state": dead.model_dump(mode="json"),
+            "action": _fireball().model_dump(mode="json"),
+        },
+    )
+    assert r.status_code == 400
+
+
 def test_resolve_match_over():
-    # p2 at 15 HP takes a lethal 18 -> KO
+    # active p1 kills p2 (15 HP, 18 dmg).
     low = GameState(
         p1=PlayerState(name="P1", hp=100, mana=10),
         p2=PlayerState(name="P2", hp=15, mana=10),
@@ -171,15 +183,7 @@ def test_resolve_match_over():
         json={
             "match_id": "m1",
             "state": low.model_dump(mode="json"),
-            "p1_action": _fireball().model_dump(mode="json"),
-            "p2_action": JudgedAction(
-                category="heal",
-                subtype="heal",
-                element="nature",
-                power=1,
-                speed=1,
-                flavor_text="sip",
-            ).model_dump(mode="json"),
+            "action": _fireball().model_dump(mode="json"),
         },
     )
     body = r.json()
