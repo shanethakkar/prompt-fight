@@ -13,9 +13,12 @@ export function PlaybackLog({
   config: MatchConfig;
   onDone: () => void;
 }) {
-  const e = result.events[0];
-  const d = e.state_delta;
   const names = { p1: preState.p1.name, p2: preState.p2.name };
+  // A turn can emit several beats (start-of-turn ticks, then each component).
+  // The bars show the final snapshot; each beat gets its own narration line.
+  const last = result.events[result.events.length - 1];
+  const d = last.state_delta;
+  const flavor = result.events.find((e) => e.narration)?.narration ?? "";
 
   return (
     <div className="flex w-full max-w-lg flex-col gap-4">
@@ -33,8 +36,18 @@ export function PlaybackLog({
       </div>
 
       <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
-        <div className="italic text-zinc-300">“{e.narration}”</div>
-        <div className="mt-2 font-medium text-zinc-100">{narrateResult(e, names)}</div>
+        {flavor && <div className="italic text-zinc-300">“{flavor}”</div>}
+        <ul className="mt-2 flex flex-col gap-1.5">
+          {result.events.map((e, i) => {
+            const line = narrateResult(e, names);
+            if (!line) return null;
+            return (
+              <li key={i} className="font-medium text-zinc-100">
+                {line}
+              </li>
+            );
+          })}
+        </ul>
       </div>
 
       <button

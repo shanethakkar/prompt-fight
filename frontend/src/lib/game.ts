@@ -2,12 +2,15 @@
 // lives here — the server is authoritative. Unit-tested in game.test.ts.
 
 import type {
+  Action,
+  ActiveEffect,
+  EffectComponent,
   Element,
   JudgeResponse,
-  JudgedAction,
   PlayerState,
   ResolutionEvent,
   Side,
+  StatKind,
 } from "./types";
 
 export type Phase =
@@ -29,10 +32,53 @@ export function capitalize(s: string): string {
   return s.length ? s[0].toUpperCase() + s.slice(1) : s;
 }
 
-/** Human summary of a judged action for the cost preview. */
-export function describeAction(action: JudgedAction): string {
-  const base = `${capitalize(action.element)} ${action.subtype} · power ${action.power} · speed ${action.speed}`;
-  return action.stat ? `${base} · ${action.stat}` : base;
+const DOT_LABEL: Record<Element, string> = {
+  fire: "burn",
+  nature: "poison",
+  water: "chill",
+  lightning: "shock",
+  physical: "bleed",
+};
+
+function signed(n: number): string {
+  return n >= 0 ? `+${n}` : `${n}`;
+}
+
+function statName(stat: StatKind): string {
+  return stat === "damage_taken" ? "dmg taken" : stat;
+}
+
+/** A short label for one effect component (used in the cost preview). */
+export function describeComponent(c: EffectComponent): string {
+  switch (c.type) {
+    case "damage":
+      return `${capitalize(c.element)} strike · pow ${c.power}`;
+    case "heal":
+      return `Heal · pow ${c.power}`;
+    case "dot":
+      return `${capitalize(DOT_LABEL[c.element])} · ${c.power}/turn × ${c.duration}t`;
+    case "hot":
+      return `Regen · ${c.power}/turn × ${c.duration}t`;
+    case "stat": {
+      const who = c.target === "self" ? "you" : "foe";
+      if (c.stat === "damage_taken") {
+        const p = Math.abs(c.magnitude ?? 0) * 10;
+        const kind = (c.magnitude ?? 0) < 0 ? "armor" : "expose";
+        return `${who}: ${kind} ${p}% · ${c.duration}t`;
+      }
+      return `${who}: ${signed(c.magnitude ?? 0)} ${statName(c.stat!)} · ${c.duration}t`;
+    }
+    case "defense":
+      return `${capitalize(c.subtype ?? "shield")}`;
+    default:
+      return c.type;
+  }
+}
+
+/** Human summary of a judged action bundle for the cost preview. */
+export function describeAction(action: Action): string {
+  if (!action.components.length) return "no effect";
+  return action.components.map(describeComponent).join("  +  ");
 }
 
 /** Tailwind text-color class per element (UI accent only). */
@@ -72,14 +118,49 @@ export function winnerLabel(
   return "Match over";
 }
 
-/** A plain-language sentence telling the story of one action's RESULT. */
+/** A plain-language sentence telling the story of one playback beat's RESULT. */
 export function narrateResult(e: ResolutionEvent, names: Record<Side, string>): string {
   const actor = names[e.actor];
   const target = names[e.target];
   const eff = e.effect;
+
+  // Over-time ticks fire at the start of the afflicted's turn.
+  if (e.kind === "dot_tick") {
+    const what = eff?.label ? `${eff.label} damage` : "damage";
+    return `${target} takes ${e.amount} ${what}.`;
+  }
+  if (e.kind === "hot_tick") {
+    return e.amount > 0 ? `${target} regenerates ${e.amount} HP.` : `${target} is already at full health.`;
+  }
+
+  switch (e.kind) {
+    case "damage":
+      return narrateDamage(e, actor, target);
+    case "heal":
+      return e.amount > 0 ? `${actor} recovers ${e.amount} HP.` : `${actor} is already at full health.`;
+    case "dot":
+      return `${actor} afflicts ${target} with ${eff?.label ?? "an effect"} — ${eff?.per_turn}/turn for ${eff?.duration} turns.`;
+    case "hot":
+      return `${actor} starts regenerating — ${eff?.per_turn}/turn for ${eff?.duration} turns.`;
+    case "stat":
+      return narrateStat(e, actor, target);
+    case "defense": {
+      const s = eff?.label;
+      const how = s === "shield" ? "shield up" : s === "dodge" ? "ready to dodge" : "reflect ready";
+      return `${actor} braces — ${how}.`;
+    }
+    case "fizzle":
+      return `${actor}'s action fizzles.`;
+    default:
+      return "";
+  }
+}
+
+function narrateDamage(e: ResolutionEvent, actor: string, target: string): string {
+  const eff = e.effect;
   switch (e.outcome) {
     case "hit_knockback":
-      return `${actor} hits ${target} for ${e.damage}.`;
+      return `${actor} hits ${target} for ${e.amount}.`;
     case "blocked":
       return `${target} blocks it${eff?.absorbed ? ` (absorbed ${eff.absorbed})` : ""} — no damage.`;
     case "partial": {
@@ -89,25 +170,29 @@ export function narrateResult(e: ResolutionEvent, names: Record<Side, string>): 
           : eff?.kind === "reflect"
             ? "punches through the reflect"
             : "gets through the shield";
-      return `It ${how} — ${e.damage} to ${target}.`;
+      return `It ${how} — ${e.amount} to ${target}.`;
     }
     case "dodged":
       return `${target} dodges it completely.`;
     case "reflected":
-      return `Reflected! ${e.damage} bounces back at ${actor}.`;
-    case "healed":
-      return eff?.magnitude
-        ? `${actor} recovers ${eff.magnitude} HP.`
-        : `${actor} is already at full health.`;
-    case "buffed":
-      return `${actor} is ${eff?.kind === "hasten" ? "hastened" : "empowered"}: +${eff?.magnitude} ${eff?.stat} for ${eff?.duration} turns.`;
-    case "debuffed":
-      return `${target} is ${eff?.kind === "slow" ? "slowed" : "weakened"}: -${eff?.magnitude} ${eff?.stat} for ${eff?.duration} turns.`;
-    case "defended":
-      return `${actor} braces — ${eff?.kind === "shield" ? "shield up" : eff?.kind === "dodge" ? "ready to dodge" : "reflect ready"}.`;
+      return `Reflected! ${e.amount} bounces back at ${actor}.`;
     default:
-      return "";
+      return `${actor} hits ${target} for ${e.amount}.`;
   }
+}
+
+function narrateStat(e: ResolutionEvent, actor: string, target: string): string {
+  const eff = e.effect;
+  const dur = eff?.duration;
+  const mag = eff?.magnitude ?? 0;
+  if (eff?.stat === "damage_taken") {
+    const p = Math.abs(mag) * 10;
+    return mag < 0
+      ? `${target} is armored — takes ${p}% less damage for ${dur} turns.`
+      : `${target} is exposed — takes ${p}% more damage for ${dur} turns.`;
+  }
+  const label = eff?.label ?? "affected";
+  return `${target} is ${label}: ${signed(mag)} ${statName(eff?.stat ?? "power")} for ${dur} turns.`;
 }
 
 export type ChipTone = "buff" | "debuff" | "defense" | "cooldown";
@@ -117,29 +202,44 @@ export interface Chip {
   tone: ChipTone;
 }
 
+function statChip(e: ActiveEffect): Chip {
+  const t = e.turns_remaining;
+  if (e.stat === "damage_taken") {
+    const p = Math.abs(e.magnitude) * 10;
+    return e.magnitude < 0
+      ? { text: `Armored −${p}% dmg · ${t}t`, tone: "buff" }
+      : { text: `Exposed +${p}% dmg · ${t}t`, tone: "debuff" };
+  }
+  const good = e.magnitude >= 0;
+  const label = e.label || (good ? "Buffed" : "Debuffed");
+  return { text: `${capitalize(label)} ${signed(e.magnitude)} ${statName(e.stat ?? "power")} · ${t}t`, tone: good ? "buff" : "debuff" };
+}
+
 /** Readable status chips for a player (what each effect actually does). */
 export function statusChips(p: PlayerState): Chip[] {
   const chips: Chip[] = [];
-  if (p.active_buff) {
-    const b = p.active_buff;
-    const txt = b.speed_shift
-      ? `Hastened +${b.speed_shift} spd`
-      : `Empowered +${b.power_shift} pow`;
-    chips.push({ text: `${txt} · ${b.turns_remaining}t`, tone: "buff" });
+  for (const e of p.effects) {
+    switch (e.kind) {
+      case "dot":
+        chips.push({ text: `${capitalize(e.label || "poison")} ${e.per_turn}/t · ${e.turns_remaining}t`, tone: "debuff" });
+        break;
+      case "hot":
+        chips.push({ text: `Regen ${e.per_turn}/t · ${e.turns_remaining}t`, tone: "buff" });
+        break;
+      case "stat":
+        chips.push(statChip(e));
+        break;
+      case "defense": {
+        const s = e.subtype;
+        const txt = s === "shield" ? "Shield up" : s === "dodge" ? "Braced (dodge)" : "Reflecting";
+        chips.push({ text: txt, tone: "defense" });
+        break;
+      }
+    }
   }
-  if (p.active_debuff) {
-    const d = p.active_debuff;
-    const txt = d.speed_shift ? `Slowed -${d.speed_shift} spd` : `Weakened -${d.power_shift} pow`;
-    chips.push({ text: `${txt} · ${d.turns_remaining}t`, tone: "debuff" });
-  }
-  if (p.active_defense) {
-    const s = p.active_defense.subtype;
-    const txt = s === "shield" ? "Shield up" : s === "dodge" ? "Braced (dodge)" : "Reflecting";
-    chips.push({ text: txt, tone: "defense" });
-  }
-  for (const [cat, turns] of Object.entries(p.cooldowns)) {
+  for (const [kind, turns] of Object.entries(p.cooldowns)) {
     if (turns && turns > 0) {
-      chips.push({ text: `${capitalize(cat)} ready in ${turns}`, tone: "cooldown" });
+      chips.push({ text: `${capitalize(kind)} ready in ${turns}`, tone: "cooldown" });
     }
   }
   return chips;

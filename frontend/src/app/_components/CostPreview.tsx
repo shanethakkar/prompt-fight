@@ -1,5 +1,5 @@
 import type { JudgeResponse } from "@/lib/types";
-import { canConfirm, canRewrite, describeAction, elementColor } from "@/lib/game";
+import { canConfirm, canRewrite, describeComponent, elementColor } from "@/lib/game";
 
 export function CostPreview({
   res,
@@ -25,7 +25,16 @@ export function CostPreview({
         <div className={`text-lg font-semibold ${elementColor(action.element)}`}>
           {action.flavor_text}
         </div>
-        <div className="mt-1 text-sm text-zinc-400">{describeAction(action)}</div>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {action.components.map((c, i) => (
+            <span
+              key={i}
+              className="rounded bg-zinc-800 px-1.5 py-0.5 text-xs text-zinc-300"
+            >
+              {describeComponent(c)}
+            </span>
+          ))}
+        </div>
         <div className="mt-3 flex items-center gap-4 text-sm">
           <span className="rounded bg-zinc-800 px-2 py-1">
             Cost <span className="font-semibold text-sky-400">{res.mana_cost}</span> mana
@@ -33,7 +42,7 @@ export function CostPreview({
           {res.affordable === false && (
             <span className="text-rose-400">Not enough mana</span>
           )}
-          {res.on_cooldown && <span className="text-rose-400">Category on cooldown</span>}
+          {res.on_cooldown && <span className="text-rose-400">On cooldown</span>}
         </div>
       </div>
 

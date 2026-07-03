@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import * as api from "@/lib/api";
-import type { GameState, JudgeResponse, JudgedAction, MatchConfig, ResolveResult } from "@/lib/types";
+import type { Action, GameState, JudgeResponse, MatchConfig, ResolveResult } from "@/lib/types";
 import type { Phase } from "@/lib/game";
 import { StartScreen } from "./StartScreen";
 import { HandoffScreen } from "./HandoffScreen";
@@ -85,7 +85,7 @@ export default function GameBoard() {
     await resolveTurn(preview.action);
   }
 
-  async function resolveTurn(action: JudgedAction) {
+  async function resolveTurn(action: Action) {
     if (!state) return;
     setPreState(state);
     setPreview(null);

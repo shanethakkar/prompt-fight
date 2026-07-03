@@ -1,21 +1,17 @@
 // TypeScript mirror of the backend contract (backend/app/models.py + schemas.py).
 // Keep in sync: if a Pydantic model changes, change the matching type here.
 
-export type Category = "attack" | "defense" | "buff" | "debuff" | "heal";
-
-export type Subtype =
-  | "projectile"
-  | "beam"
-  | "melee"
-  | "aoe"
-  | "shield"
-  | "dodge"
-  | "reflect"
-  | "buff"
-  | "debuff"
-  | "heal";
-
 export type Element = "physical" | "fire" | "water" | "nature" | "lightning";
+
+export type ComponentType = "damage" | "heal" | "dot" | "hot" | "stat" | "defense";
+
+export type ComponentTarget = "self" | "opponent";
+
+export type StatKind = "power" | "speed" | "damage_taken";
+
+export type DefenseSubtype = "shield" | "dodge" | "reflect";
+
+export type EffectKind = "dot" | "hot" | "stat" | "defense" | "control";
 
 export type Template =
   | "projectile"
@@ -29,8 +25,6 @@ export type Template =
   | "debuff_cloud"
   | "heal_glow";
 
-export type Stat = "power" | "speed";
-
 export type Outcome =
   | "hit_knockback"
   | "blocked"
@@ -38,19 +32,11 @@ export type Outcome =
   | "dodged"
   | "reflected"
   | "healed"
-  | "buffed"
-  | "debuffed"
-  | "defended"
+  | "applied"
+  | "ticked"
   | "fizzled";
 
-export type Shape =
-  | "circle"
-  | "rect"
-  | "triangle"
-  | "line"
-  | "zigzag"
-  | "ring"
-  | "star";
+export type Shape = "circle" | "rect" | "triangle" | "line" | "zigzag" | "ring" | "star";
 
 export type Size = "small" | "medium" | "large";
 
@@ -65,14 +51,22 @@ export interface Visual {
   primitives: Primitive[];
 }
 
-export interface JudgedAction {
-  category: Category;
-  subtype: Subtype;
+export interface EffectComponent {
+  type: ComponentType;
+  target: ComponentTarget;
   element: Element;
-  power: number;
+  power: number | null;
+  magnitude: number | null;
+  duration: number | null;
+  stat: StatKind | null;
+  subtype: DefenseSubtype | null;
+}
+
+export interface Action {
+  components: EffectComponent[];
+  element: Element;
   speed: number;
-  stat: Stat | null;
-  template: Template | null;
+  template: Template;
   visual: Visual;
   flavor_text: string;
 }
@@ -80,27 +74,25 @@ export interface JudgedAction {
 export type Side = "p1" | "p2";
 
 export interface ActiveEffect {
-  power_shift: number;
-  speed_shift: number;
+  kind: EffectKind;
   turns_remaining: number;
-}
-
-export interface ActiveDefense {
-  subtype: Subtype; // shield | dodge | reflect
+  source: Side;
+  label: string;
+  per_turn: number;
   element: Element;
+  stat: StatKind | null;
+  magnitude: number;
+  subtype: DefenseSubtype | null;
   power: number;
   speed: number;
-  turns_remaining: number;
 }
 
 export interface PlayerState {
   name: string;
   hp: number;
   mana: number;
-  cooldowns: Partial<Record<Category, number>>;
-  active_buff: ActiveEffect | null;
-  active_debuff: ActiveEffect | null;
-  active_defense: ActiveDefense | null;
+  cooldowns: Record<string, number>;
+  effects: ActiveEffect[];
 }
 
 export interface GameState {
@@ -118,20 +110,24 @@ export interface StateDelta {
 }
 
 export interface EffectSummary {
-  kind: string; // empower|hasten|weaken|slow|shield|dodge|reflect|heal
-  stat?: Stat | null;
+  kind: string;
+  stat?: StatKind | null;
   magnitude?: number | null;
   duration?: number | null;
+  per_turn?: number | null;
   absorbed?: number | null;
+  label?: string;
 }
 
 export interface ResolutionEvent {
   actor: Side;
   target: Side;
-  template: Template;
+  kind: string; // component type, or "dot_tick" / "hot_tick"
+  element: Element;
   outcome: Outcome;
-  damage: number;
+  amount: number;
   effect: EffectSummary | null;
+  template: Template | null;
   narration: string;
   state_delta: StateDelta;
 }
@@ -155,7 +151,7 @@ export interface MatchConfig {
 
 export interface PlayerSnapshot {
   mana: number;
-  cooldowns: Partial<Record<Category, number>>;
+  cooldowns: Record<string, number>;
 }
 
 export interface JudgeRequest {
@@ -166,7 +162,7 @@ export interface JudgeRequest {
 }
 
 export interface JudgeResponse {
-  action: JudgedAction | null;
+  action: Action | null;
   mana_cost: number | null;
   affordable: boolean | null;
   on_cooldown: boolean | null;
@@ -178,7 +174,7 @@ export interface JudgeResponse {
 export interface ResolveRequest {
   match_id: string;
   state: GameState;
-  action: JudgedAction;
+  action: Action;
 }
 
 export interface NewMatchResponse {
