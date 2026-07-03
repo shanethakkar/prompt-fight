@@ -621,6 +621,14 @@ def resolve_turn(state: GameState, action: Action | None, balance: BalanceConfig
             new_id = f"{a_side}e{ns.round}{'abcde'[summon_idx]}"
             summon_idx += 1
             hp = c.hp or 40
+            # Starting gear: functional worn armor if the summon carries a rating,
+            # else a plain named trinket.
+            if c.armor:
+                start_items = [Item(name=c.item or "armor", kind="armor", armor=c.armor)]
+            elif c.item:
+                start_items = [Item(name=c.item, kind="gear")]
+            else:
+                start_items = []
             new_unit = Unit(
                 id=new_id,
                 name=c.name or "Summon",
@@ -629,7 +637,7 @@ def resolve_turn(state: GameState, action: Action | None, balance: BalanceConfig
                 max_hp=hp,
                 weapon=Weapon(element=c.element, power=c.power or 4),
                 tags=list(c.tags or []),
-                items=[Item(name=c.item, kind="gear")] if c.item else [],
+                items=start_items,
             )
             staged_summons.append(new_unit)
             ev_target_id, ev_target_name = new_unit.id, new_unit.name

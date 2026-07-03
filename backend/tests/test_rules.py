@@ -329,6 +329,12 @@ def test_armor_item_costs_scale_with_rating():
     assert bundle_cost([diamond], BAL) > bundle_cost([leather], BAL) > bundle_cost([trinket], BAL)
 
 
+def test_armored_summon_costs_more():
+    bare = EffectComponent(type=ComponentType.summon, name="Orc", hp=40, power=6)
+    armored = EffectComponent(type=ComponentType.summon, name="Orc", hp=40, power=6, armor=6)
+    assert bundle_cost([armored], BAL) > bundle_cost([bare], BAL)
+
+
 # ---------------------------------------------------------------------------
 # type_multiplier (unchanged element chart)
 # ---------------------------------------------------------------------------

@@ -710,6 +710,28 @@ def test_summon_starting_item_is_structured():
     assert len(items) == 1 and items[0].name == "shield" and items[0].kind == "gear"
 
 
+def test_summon_spawns_functional_armor():
+    from app.rules import damage_taken_mult
+
+    r = turn(
+        state(active="p1"),
+        action(
+            {
+                "type": "summon",
+                "name": "Knight",
+                "hp": 40,
+                "power": 5,
+                "armor": 6,
+                "item": "diamond armor",
+            }
+        ),
+    )
+    ent = r.state.p1.entities[0]
+    it = ent.items[0]
+    assert it.kind == "armor" and it.armor == 6 and it.name == "diamond armor"
+    assert damage_taken_mult(ent, BAL) == pytest.approx(0.4)  # 60% less: real protection
+
+
 def test_entity_attack_uses_its_weapon_power():
     st = state(active="p1")
     st.p1.entities = [orc(power=6)]  # weapon power 6 -> 18 dmg, not the component's power 2

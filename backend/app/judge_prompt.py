@@ -84,9 +84,13 @@ snake ~15; wolf/archer/soldier/thug ~25; orc/knight/bear ~35; ogre/troll/golem ~
 dragon/giant/demon/god/titan ~70. A common animal or minion is NOT a tank — a dog is \
 ~15, not 40. Set `name` and `power`+`element` = its ASSUMED WEAPON from what it IS \
 (rat/dog teeth ~2-3, archer arrows ~5, knight sword ~5, mage fire ~6, dragon fire ~8, \
-god ~8). Optional `tags` (e.g. ["undead"], ["flying"]) and `item` (a \
-weapon/armor it spawns holding). A summon takes your WHOLE turn — you CANNOT summon \
-and attack in the same command; the new unit acts on your NEXT turn.
+god ~8). Optional `tags` (e.g. ["undead"], ["flying"]). To spawn it already WEARING \
+armor, set `armor` (the material rating, same scale as an armor item — leather ~2, \
+iron ~4, plate ~5, diamond ~6, netherite ~8) and `item` = the armor's name; this gives \
+the new unit REAL functional armor (do NOT use a separate `item` component — the unit \
+doesn't exist yet). For non-protective flavor gear, just set `item` (a name). A summon \
+takes your WHOLE turn — you CANNOT summon and attack in the same command; the new unit \
+acts on your NEXT turn.
 - item — equip ONE of YOUR units with a WEAPON, worn ARMOR, or a TRINKET. target self; \
 set `target_id` (default your stickman) and `name`. \
   • WEAPON: add `element`+`power` — it (re)arms that unit (a flaming sword makes its \
@@ -206,6 +210,9 @@ self], "A swig and a braced shield."
 template aoe_burst, "Space buckles into a black hole."
 "I summon a fierce orc wielding a battle axe" -> [summon name "Orc" hp 45 power 6 \
 physical item "battle axe" tags ["orc"]], "An orc lumbers onto the field, axe raised."
+"I summon a knight clad in a full suit of diamond armor" -> [summon name "Knight" hp 35 \
+power 5 physical armor 6 item "diamond armor" tags ["knight"]], "A diamond-clad knight \
+strides forth."
 "I raise a skeleton archer to fight for me" -> [summon name "Skeleton Archer" hp 25 \
 power 5 physical tags ["undead"]], "Bones clatter up, bow drawn."
 "I give my orc a mighty flaming greatsword" (orc = p1e1a) -> [item target_id p1e1a \
@@ -310,8 +317,9 @@ _COMPONENT_SCHEMA: dict = {
             "type": "integer",
             "minimum": 1,
             "maximum": 8,
-            "description": "item only: worn-armor rating by material (leather ~2, iron ~4, "
-            "diamond ~6, netherite ~8) — a persistent per-hit damage reduction.",
+            "description": "item OR summon: worn-armor rating by material (leather ~2, iron "
+            "~4, diamond ~6, netherite ~8) — a persistent per-hit damage reduction. On a "
+            "summon it spawns the new unit already wearing that armor.",
         },
     },
     "required": ["type"],

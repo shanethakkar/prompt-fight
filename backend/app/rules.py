@@ -185,11 +185,14 @@ def normalize_components(
             raw_tags = item.get("tags")
             tags = [str(t)[:20] for t in raw_tags][:4] if isinstance(raw_tags, list) else []
             item_name = item.get("item")
+            # A summoned unit can spawn already wearing functional armor.
+            arm = _clamp(_int(item.get("armor"), 0), 0, mmax) if "armor" in item else 0
             comp = EffectComponent(
                 type=ctype,
                 target=ComponentTarget.caster,
                 element=element,  # the new unit's weapon element
                 power=power,  # the new unit's weapon power (anchors its attacks)
+                armor=arm or None,  # the new unit's worn-armor rating
                 name=str(item.get("name") or "summon")[:24],
                 hp=_clamp(_int(item.get("hp"), 25), balance.summon_hp_min, balance.summon_hp_max),
                 tags=tags,
@@ -453,8 +456,9 @@ def component_weight(c: EffectComponent, balance: BalanceConfig) -> float:
     if c.type is ComponentType.control:
         return w.control * (c.duration or 1)
     if c.type is ComponentType.summon:
-        # A summon's price scales with the body it puts on the board (hp + weapon).
-        return ((c.hp or 0) / 10 + (c.power or 0)) * w.summon
+        # A summon's price scales with the body it puts on the board (hp + weapon,
+        # plus any worn armor it spawns with).
+        return ((c.hp or 0) / 10 + (c.power or 0) + (c.armor or 0)) * w.summon
     if c.type is ComponentType.item:
         # Cheap utility; a weapon- or armor-item costs more with its rating
         # (diamond armor > leather; a flaming sword > a bare trinket).
