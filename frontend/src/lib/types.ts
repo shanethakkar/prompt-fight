@@ -86,6 +86,9 @@ export interface EffectComponent {
   // damage/dot matchup tier
   effectiveness?: Effectiveness;
   eff_tag?: string | null;
+  // damage/dot: is the actor fit for this? (P1.2)
+  aptitude?: "fit" | "improvised" | "unfit";
+  apt_basis?: string | null;
 }
 
 export interface Action {

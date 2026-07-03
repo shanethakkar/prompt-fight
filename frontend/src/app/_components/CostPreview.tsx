@@ -32,6 +32,14 @@ export function CostPreview({
   // Show the odds readout only when the outcome is actually uncertain (competitive).
   const hasRisk = !!odds && Object.entries(odds).some(([k, v]) => k !== "full" && v > 0.0005);
 
+  // An ill-suited actor (P1.2) — surface WHY the odds are shaky.
+  const misfit = action.components.find(
+    (c) => (c.type === "damage" || c.type === "dot") && c.aptitude && c.aptitude !== "fit",
+  );
+  const aptNote = misfit
+    ? `${misfit.aptitude === "unfit" ? "Ill-suited" : "Improvised"}${misfit.apt_basis ? ` — ${misfit.apt_basis}` : ""}`
+    : null;
+
   return (
     <div className="flex w-full max-w-lg flex-col gap-4">
       <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
@@ -60,7 +68,10 @@ export function CostPreview({
 
         {hasRisk && odds && (
           <div className="mt-3">
-            <div className="mb-1 text-xs text-zinc-400">Success odds</div>
+            <div className="mb-1 flex items-center gap-2 text-xs text-zinc-400">
+              <span>Success odds</span>
+              {aptNote && <span className="text-amber-400">⚠ {aptNote}</span>}
+            </div>
             <div className="flex h-2 w-full overflow-hidden rounded-full bg-zinc-800">
               {ODDS_TIERS.map(([key, bar]) => {
                 const pct = (odds[key] ?? 0) * 100;

@@ -608,3 +608,113 @@ def test_roll_outcome_certain_and_partitioned():
         roll_outcome({"miss": 0.2, "full": 0.8}, random.Random(s)) for s in range(3000)
     )
     assert 0.15 < counts["miss"] / 3000 < 0.25
+
+
+# ---------------------------------------------------------------------------
+# Aptitude grounding (P1.2): a fit claim needs a mundane action or a suited actor
+# ---------------------------------------------------------------------------
+
+
+def _apt_comp(element="fire", aptitude="fit", source_id="p1s"):
+    return {
+        "type": "damage",
+        "power": 6,
+        "element": element,
+        "aptitude": aptitude,
+        "source_id": source_id,
+        "target_id": "p2s",
+    }
+
+
+def _apt_roster(you_unit):
+    return Roster(
+        you=[you_unit],
+        foe=[RosterUnit(id="p2s", name="Foe", kind="stickman", hp=100, max_hp=100)],
+    )
+
+
+def test_aptitude_bare_stickman_spell_drops_to_improvised():
+    from app.models import Aptitude
+
+    r = _apt_roster(RosterUnit(id="p1s", name="Stick", kind="stickman", hp=100, max_hp=100))
+    out = normalize_components([_apt_comp(element="fire", aptitude="fit")], BAL, r)
+    assert out[0].aptitude is Aptitude.improvised  # no arcane focus -> not full fit
+
+
+def test_aptitude_mundane_physical_stays_fit():
+    from app.models import Aptitude
+
+    r = _apt_roster(RosterUnit(id="p1s", name="Stick", kind="stickman", hp=100, max_hp=100))
+    out = normalize_components([_apt_comp(element="physical", aptitude="fit")], BAL, r)
+    assert out[0].aptitude is Aptitude.fit  # a punch is fit for anyone
+
+
+def test_aptitude_summoned_caster_stays_fit():
+    from app.models import Aptitude
+
+    r = Roster(
+        you=[RosterUnit(id="p1e1a", name="Mage", kind="entity", hp=30, max_hp=30)],
+        foe=[RosterUnit(id="p2s", name="Foe", kind="stickman", hp=100, max_hp=100)],
+    )
+    out = normalize_components(
+        [_apt_comp(element="fire", aptitude="fit", source_id="p1e1a")], BAL, r
+    )
+    assert out[0].aptitude is Aptitude.fit  # an entity is inherently specialized
+
+
+def test_aptitude_wand_equipped_stickman_stays_fit():
+    from app.models import Aptitude
+
+    r = _apt_roster(
+        RosterUnit(id="p1s", name="Stick", kind="stickman", hp=100, max_hp=100, items=["wand"])
+    )
+    out = normalize_components([_apt_comp(element="fire", aptitude="fit")], BAL, r)
+    assert out[0].aptitude is Aptitude.fit  # gear earns the magic
+
+
+def test_aptitude_elemental_weapon_stays_fit():
+    from app.models import Aptitude, Weapon
+
+    r = _apt_roster(
+        RosterUnit(
+            id="p1s",
+            name="Stick",
+            kind="stickman",
+            hp=100,
+            max_hp=100,
+            weapon=Weapon(name="flame blade", element=Element.fire, power=6),
+        )
+    )
+    out = normalize_components([_apt_comp(element="fire", aptitude="fit")], BAL, r)
+    assert out[0].aptitude is Aptitude.fit
+
+
+def test_aptitude_trusts_improvised_and_unfit_for_bare_actor():
+    from app.models import Aptitude
+
+    r = _apt_roster(RosterUnit(id="p1s", name="Stick", kind="stickman", hp=100, max_hp=100))
+    imp = normalize_components([_apt_comp(element="fire", aptitude="improvised")], BAL, r)
+    assert imp[0].aptitude is Aptitude.improvised
+    unf = normalize_components([_apt_comp(element="fire", aptitude="unfit")], BAL, r)
+    assert unf[0].aptitude is Aptitude.unfit
+
+
+def test_aptitude_server_is_authoritative_on_fit_for_geared_actor():
+    from app.models import Aptitude
+
+    # even if the judge under-calls "unfit", a wand-equipped actor is granted fit.
+    r = _apt_roster(
+        RosterUnit(id="p1s", name="Stick", kind="stickman", hp=100, max_hp=100, items=["wand"])
+    )
+    out = normalize_components([_apt_comp(element="fire", aptitude="unfit")], BAL, r)
+    assert out[0].aptitude is Aptitude.fit
+
+
+def test_success_odds_drops_with_poor_competence():
+    from app.models import Aptitude
+
+    fit = success_odds(_atk(6), _cstate(), BAL)
+    poor = _atk(6)
+    poor.components[0].aptitude = Aptitude.improvised
+    imp = success_odds(poor, _cstate(), BAL)
+    assert imp["full"] < fit["full"] and imp["miss"] > fit["miss"]

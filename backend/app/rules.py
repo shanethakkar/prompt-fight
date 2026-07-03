@@ -21,6 +21,7 @@ from app.config import BalanceConfig
 from app.models import (
     Action,
     ActiveEffect,
+    Aptitude,
     ComponentTarget,
     ComponentType,
     DefenseSubtype,
@@ -217,6 +218,9 @@ def normalize_components(
             )
             et = item.get("eff_tag")
             comp.eff_tag = str(et)[:24] if isinstance(et, str) else None
+            comp.aptitude = _as_enum(item.get("aptitude"), Aptitude, Aptitude.fit)
+            ab = item.get("apt_basis")
+            comp.apt_basis = str(ab)[:32] if isinstance(ab, str) else None
         out.append(comp)
 
     # "Can't summon and attack the same turn": a bundle that summons carries no
@@ -229,6 +233,7 @@ def normalize_components(
         for c in out:
             _resolve_ids(c, roster)
             _ground_effectiveness(c, roster)
+            _ground_aptitude(c, roster)
     return _enforce_combo_caps(out, balance)
 
 
@@ -256,6 +261,38 @@ def _ground_effectiveness(comp: EffectComponent, roster: Roster) -> None:
     if not (target_has_tag and attacker_special):
         comp.effectiveness = Effectiveness.neutral
         comp.eff_tag = None
+
+
+def _ground_aptitude(comp: EffectComponent, roster: Roster) -> None:
+    """Decide competence from real state (P1.2) — the server is authoritative on
+    ``fit`` so gear/identity actually earns it. A basic/mundane **physical** action
+    is fit for anyone. A **specialized** (elemental/magical) one is fit only when
+    the actor has the means — a summoned creature (kind != stickman) or a unit
+    carrying tags/items/an elemental weapon (a stickman handed a wand). A bare
+    actor attempting magic can't be fit; there the judge's call stands but is
+    capped at ``improvised`` (a credible in-fiction stretch — the torch-grab) vs
+    ``unfit`` (a bare over-reach). Ambition (reach) still throttles a fit
+    specialist's *biggest* plays, so this doesn't make specialists infallible."""
+    if comp.type not in (ComponentType.damage, ComponentType.dot):
+        return
+    if comp.element is Element.physical:
+        comp.aptitude = Aptitude.fit  # mundane force — anyone can
+        return
+    source = next((u for u in roster.you if u.id == comp.source_id), None)
+    specialized = bool(
+        source
+        and (
+            source.kind != "stickman"
+            or source.tags
+            or source.items
+            or (source.weapon and source.weapon.element != Element.physical)
+        )
+    )
+    if specialized:
+        comp.aptitude = Aptitude.fit  # has the means for magic
+    elif comp.aptitude is Aptitude.fit:
+        comp.aptitude = Aptitude.improvised  # claimed fit but no focus -> at best improvised
+        comp.apt_basis = comp.apt_basis or "no fitting focus"
 
 
 def effectiveness_mult(tier: Effectiveness, balance: BalanceConfig) -> float:
@@ -291,8 +328,11 @@ def reach(components: list[EffectComponent], balance: BalanceConfig) -> float:
 
 
 def _competence(components: list[EffectComponent]) -> str:
-    """P1.1 stub — every actor is 'fit'. P1.2 grounds real aptitude per source."""
-    return "fit"
+    """The command's competence for the roll = the least-fit offensive component's
+    grounded aptitude (P1.2). A single attack is just its own aptitude."""
+    order = {"fit": 0, "improvised": 1, "unfit": 2}
+    apts = [c.aptitude.value for c in components if c.type in _OFFENSIVE]
+    return max(apts, key=lambda a: order[a]) if apts else "fit"
 
 
 def _evade_chance(action: Action, state: GameState, balance: BalanceConfig) -> float:

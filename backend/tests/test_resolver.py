@@ -12,6 +12,7 @@ from app.config import load_balance
 from app.models import (
     Action,
     ActiveEffect,
+    Aptitude,
     Barrier,
     DefenseSubtype,
     EffectKind,
@@ -888,3 +889,20 @@ def test_competitive_roll_is_deterministic():
     r2 = turn(state(active="p1", mode="competitive", seed=1234), a)
     assert r1.events[0].outcome == r2.events[0].outcome
     assert r1.state.p2.stickman.hp == r2.state.p2.stickman.hp
+
+
+def test_competitive_unfit_lands_weaker(monkeypatch):
+    # P1.2: even on a "full" roll, an unfit actor's attack lands at reduced power.
+    _force_tier(monkeypatch, "full")
+    a = action(DMG6)
+    a.components[0].aptitude = Aptitude.unfit
+    r = turn(state(active="p1", mode="competitive"), a)
+    assert r.state.p2.stickman.hp == 92  # round(18 * 0.45) = 8
+
+
+def test_sandbox_ignores_competence_power():
+    # In sandbox aptitude never nerfs power (and there's no roll) — full damage.
+    a = action(DMG6)
+    a.components[0].aptitude = Aptitude.unfit
+    r = turn(state(active="p1", mode="sandbox"), a)
+    assert r.state.p2.stickman.hp == 82  # full 18

@@ -11,6 +11,7 @@ model enums so they cannot drift from the code.
 from __future__ import annotations
 
 from app.models import (
+    Aptitude,
     ComponentTarget,
     ComponentType,
     DefenseSubtype,
@@ -103,6 +104,23 @@ same `kryptonian` → RESISTED (they're near-invulnerable to normal force). \
   • silver vs a `werewolf` → devastating; a normal blade vs it → resisted. \
 Default neutral. NEVER invent a tag — if the roster doesn't show it on the target, \
 leave it neutral (the server drops ungrounded tiers anyway).
+
+APTITUDE (can the ACTOR pull this off?). For a `damage`/`dot`, set `aptitude` = \
+fit | improvised | unfit from WHO is acting (its name/kind/tags/items/weapon), plus \
+`apt_basis` = the reason. \
+  • A basic mundane PHYSICAL action (punch, kick, throw a rock, swing a held weapon) is \
+`fit` for ANYONE — basis "basic". \
+  • A SPECIALIZED action (cast a spell, breathe fire, hurl lightning, a magic blast) is \
+`fit` ONLY if the actor is suited: a summoned mage/dragon/wizard, or a unit carrying the \
+right gear (a wand/staff makes a stickman a caster, an elemental weapon) — basis = that \
+identity/gear. \
+  • The SAME spell from a plain stickman with no magic focus is NOT fit: a credible \
+in-fiction workaround with no gear ("grabs the fallen torch and hurls its flame") → \
+`improvised` (basis = the improvisation); a bare over-reach ("the stickman casts \
+meteors") → `unfit`. \
+The bare stickman is a reliable GENERALIST (fit at basics) but must earn magic via \
+items/summons. The server verifies a `fit` claim and drops an ungrounded one to \
+improvised — so be honest.
 
 CHOOSING dot VS stat: if the prompt describes ongoing HP loss ("bleed", "burn", \
 "poison courses through them"), use `dot`. If it describes making them WEAKER or \
@@ -248,6 +266,16 @@ _COMPONENT_SCHEMA: dict = {
         "eff_tag": {
             "type": "string",
             "description": "target's trait justifying a non-neutral tier (a real roster tag).",
+        },
+        "aptitude": {
+            "type": "string",
+            "enum": _values(Aptitude),
+            "description": "damage/dot: is the ACTOR fit for this? fit (mundane, or "
+            "suited by identity/gear) | improvised (clever, no gear) | unfit (over-reach).",
+        },
+        "apt_basis": {
+            "type": "string",
+            "description": "the reason for the aptitude (the gear/identity, or the improvisation).",
         },
         "name": {"type": "string", "description": "summon only: the new unit's name."},
         "hp": {

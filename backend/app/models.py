@@ -74,6 +74,16 @@ class Effectiveness(StrEnum):
     devastating = "devastating"
 
 
+class Aptitude(StrEnum):
+    """Whether the acting unit is fit to perform this action (P1.2 reliability).
+    The judge assesses it from the actor's identity/gear; the server grounds a
+    ``fit`` claim (an over-reach with no real basis drops to ``improvised``)."""
+
+    fit = "fit"  # suited by identity/gear, or a mundane physical action
+    improvised = "improvised"  # a credible in-fiction stretch with no real gear
+    unfit = "unfit"  # no basis — an over-reach (weak + likely to fizzle/backfire)
+
+
 class EffectKind(StrEnum):
     """The kinds of persistent effect that can sit in a player's effects list."""
 
@@ -205,6 +215,10 @@ class EffectComponent(BaseModel):
     # The server grounds ``eff_tag`` against the target's real tags (P3.3).
     effectiveness: Effectiveness = Effectiveness.neutral
     eff_tag: str | None = None
+    # damage/dot: is the SOURCE unit fit to perform this (P1.2)? The judge assesses
+    # it; the server grounds a ``fit`` claim against the actor's real identity/gear.
+    aptitude: Aptitude = Aptitude.fit
+    apt_basis: str | None = None  # the cited reason (gear/identity/improvisation)
 
 
 class RosterUnit(BaseModel):

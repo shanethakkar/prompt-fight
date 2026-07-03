@@ -402,6 +402,13 @@ def resolve_turn(state: GameState, action: Action | None, balance: BalanceConfig
             atk_power = effective_power(base, source_unit.effects)
             atk_speed = effective_speed(act_speed, source_unit.effects)
             e_mult = effectiveness_mult(c.effectiveness, balance)
+            # P1.2: in competitive, an ill-suited actor lands weaker even when it
+            # connects (sandbox stays full power, like its always-lands roll).
+            power_scale = (
+                balance.reliability.competence_power_mult.get(c.aptitude.value, 1.0)
+                if ns.mode == "competitive"
+                else 1.0
+            )
 
             if reliability_tier == "miss":
                 # The attack whiffed (roll or defender evasion) — nothing lands and
@@ -410,7 +417,7 @@ def resolve_turn(state: GameState, action: Action | None, balance: BalanceConfig
                 summary = EffectSummary(kind="damage", reliability="miss")
             elif reliability_tier == "backfire":
                 # An overreach rebounds on the acting unit (reuses the barrier soak).
-                raw_full = atk_power * balance.attack_damage_multiplier
+                raw_full = atk_power * balance.attack_damage_multiplier * power_scale
                 back = max(1, round(raw_full * balance.reliability.backfire_self_fraction))
                 back, absorbed, remaining, shatter = _absorb_through_barriers(source_unit, back)
                 source_unit.hp = max(0, source_unit.hp - back)
@@ -435,7 +442,7 @@ def resolve_turn(state: GameState, action: Action | None, balance: BalanceConfig
                     atk_power,
                     atk_speed,
                     e_mult,
-                    reliability_mult,
+                    reliability_mult * power_scale,
                     True,
                     ns.mode,
                     balance,
@@ -476,11 +483,19 @@ def resolve_turn(state: GameState, action: Action | None, balance: BalanceConfig
             )
 
         elif c.type is ComponentType.dot:
-            # effectiveness + the reliability tier are baked in at application (the
-            # tick magnitude is frozen at cast).
+            # effectiveness, reliability tier, and competence are baked in at
+            # application (the tick magnitude is frozen at cast).
             e_mult = effectiveness_mult(c.effectiveness, balance)
+            dot_scale = (
+                balance.reliability.competence_power_mult.get(c.aptitude.value, 1.0)
+                if ns.mode == "competitive"
+                else 1.0
+            )
             per_turn = max(
-                1, round((c.power or 0) * balance.dot_multiplier * e_mult * reliability_mult)
+                1,
+                round(
+                    (c.power or 0) * balance.dot_multiplier * e_mult * reliability_mult * dot_scale
+                ),
             )
             target_unit.effects.append(
                 ActiveEffect(
