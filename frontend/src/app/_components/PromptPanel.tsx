@@ -26,7 +26,10 @@ export function PromptPanel({
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && canSubmit) onSubmit(prompt.trim());
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            if (canSubmit) onSubmit(prompt.trim());
+          }
         }}
         rows={3}
         autoFocus
@@ -34,13 +37,16 @@ export function PromptPanel({
         className="w-full resize-none rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-zinc-100 outline-none focus:border-amber-400"
       />
       {error && <div className="text-sm text-rose-400">{error}</div>}
-      <button
-        onClick={() => onSubmit(prompt.trim())}
-        disabled={!canSubmit}
-        className="self-start rounded-full bg-amber-400 px-6 py-2 font-semibold text-zinc-950 transition hover:bg-amber-300 disabled:opacity-50"
-      >
-        {busy ? "Judging…" : "Submit"}
-      </button>
+      <div className="flex items-center gap-3">
+        <button
+          onClick={() => onSubmit(prompt.trim())}
+          disabled={!canSubmit}
+          className="self-start rounded-full bg-amber-400 px-6 py-2 font-semibold text-zinc-950 transition hover:bg-amber-300 disabled:opacity-50"
+        >
+          {busy ? "Judging…" : "Submit"}
+        </button>
+        <span className="text-xs text-zinc-500">Enter to submit · Shift+Enter for a new line</span>
+      </div>
     </div>
   );
 }

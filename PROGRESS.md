@@ -37,6 +37,12 @@
 
 ---
 
+## 2026-07-03 — Enter-to-submit in the prompt box
+- Done: Plain **Enter** now submits the move (was Cmd/Ctrl+Enter); **Shift+Enter** inserts a new line. Added a muted "Enter to submit · Shift+Enter for a new line" hint by the Submit button. UI-only, no rule change.
+- Files: frontend/src/app/_components/PromptPanel.tsx; PROGRESS.md.
+- Verified: `npm run typecheck && npm run lint && npm run test` (35 passed) green.
+- Follow-ups: none.
+
 ## 2026-07-03 — Entity/summon balance pass (dog complaint)
 - Done: Fixed the user's report — *"a summoned Angry Dog survived Zeus's 24 bolt and cost 8 mana; a dog should be cheap."* Root cause: the judge over-assigned HP to weak creatures (dog 35, rat 20) and summon cost is HP-driven (`((hp/10)+weapon)×weight`), so an over-tanky dog was also over-priced. Fix: rewrote the judge's summon-HP guidance to set HP **strictly by size** (rat/imp ~8, dog/goblin ~15, wolf/soldier ~25, orc/knight ~35, ogre/troll/golem ~50, dragon/giant/god ~70; "a common animal is not a tank"), lowered the HP band `summon_hp_min` 15→8 (+ max 80→75), the omitted-HP default 40→25, and the summon cost weight 0.7→0.6. Net: a dog is now **15 HP → dies to one solid hit and costs ~4** (probe + live Playwright both confirm "hits Angry Dog for 18. | Angry Dog falls!" at deploy cost 4). Also loosened the economy per the "mana pass" ask: mana start 12→14, max 22→24, regen 4→5.
 - Files: backend/app/judge_prompt.py (HP tiers), backend/app/rules.py (default HP 40→25), config/balance.json (summon weight/hp band/mana), backend/tests/{test_config,test_resolver,test_api}.py (mana + weight assertions); GAME_MECHANICS.md (§2 mana table, §3 summon row, §5 cost weights + changelog); PROGRESS.md.
