@@ -701,6 +701,15 @@ def test_summon_stages_an_entity():
     assert any(e.kind == "summon" for e in r.events)
 
 
+def test_summon_starting_item_is_structured():
+    r = turn(
+        state(active="p1"),
+        action({"type": "summon", "name": "Knight", "hp": 40, "power": 5, "item": "shield"}),
+    )
+    items = r.state.p1.entities[0].items
+    assert len(items) == 1 and items[0].name == "shield" and items[0].kind == "gear"
+
+
 def test_entity_attack_uses_its_weapon_power():
     st = state(active="p1")
     st.p1.entities = [orc(power=6)]  # weapon power 6 -> 18 dmg, not the component's power 2
@@ -777,7 +786,9 @@ def test_item_arms_a_unit_with_a_weapon():
     )
     r = turn(st, Action(components=comps, element=Element("physical"), speed=5, flavor_text="arm"))
     o = r.state.p1.entities[0]
-    assert o.weapon.element is Element.fire and o.weapon.power == 7 and "flaming sword" in o.items
+    assert o.weapon.element is Element.fire and o.weapon.power == 7
+    it = next(i for i in o.items if i.name == "flaming sword")
+    assert it.kind == "weapon" and it.element is Element.fire and it.power == 7
 
 
 def test_item_trinket_adds_tags_only():
@@ -792,7 +803,9 @@ def test_item_trinket_adds_tags_only():
         st, Action(components=comps, element=Element("physical"), speed=5, flavor_text="armor")
     )
     sm = r.state.p1.stickman
-    assert "kryptonite" in sm.tags and "kryptonite armor" in sm.items and sm.weapon is None
+    assert "kryptonite" in sm.tags and sm.weapon is None
+    it = next(i for i in sm.items if i.name == "kryptonite armor")
+    assert it.kind == "gear" and it.tags == ["kryptonite"] and it.power is None
 
 
 def test_devastating_doubles_damage():

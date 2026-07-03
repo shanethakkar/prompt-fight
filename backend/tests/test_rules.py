@@ -663,10 +663,17 @@ def test_aptitude_summoned_caster_stays_fit():
 
 
 def test_aptitude_wand_equipped_stickman_stays_fit():
-    from app.models import Aptitude
+    from app.models import Aptitude, Item
 
     r = _apt_roster(
-        RosterUnit(id="p1s", name="Stick", kind="stickman", hp=100, max_hp=100, items=["wand"])
+        RosterUnit(
+            id="p1s",
+            name="Stick",
+            kind="stickman",
+            hp=100,
+            max_hp=100,
+            items=[Item(name="wand", kind="gear")],
+        )
     )
     out = normalize_components([_apt_comp(element="fire", aptitude="fit")], BAL, r)
     assert out[0].aptitude is Aptitude.fit  # gear earns the magic
@@ -700,11 +707,18 @@ def test_aptitude_trusts_improvised_and_unfit_for_bare_actor():
 
 
 def test_aptitude_server_is_authoritative_on_fit_for_geared_actor():
-    from app.models import Aptitude
+    from app.models import Aptitude, Item
 
     # even if the judge under-calls "unfit", a wand-equipped actor is granted fit.
     r = _apt_roster(
-        RosterUnit(id="p1s", name="Stick", kind="stickman", hp=100, max_hp=100, items=["wand"])
+        RosterUnit(
+            id="p1s",
+            name="Stick",
+            kind="stickman",
+            hp=100,
+            max_hp=100,
+            items=[Item(name="wand", kind="gear")],
+        )
     )
     out = normalize_components([_apt_comp(element="fire", aptitude="unfit")], BAL, r)
     assert out[0].aptitude is Aptitude.fit

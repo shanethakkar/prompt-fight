@@ -131,6 +131,14 @@ export interface Weapon {
   power: number;
 }
 
+export interface Item {
+  name: string;
+  kind: "weapon" | "gear";
+  element: Element | null;
+  power: number | null;
+  tags: string[];
+}
+
 export interface Unit {
   id: string;
   name: string;
@@ -142,7 +150,7 @@ export interface Unit {
   stun_immunity: number;
   weapon: Weapon | null;
   tags: string[];
-  items: string[];
+  items: Item[];
 }
 
 export interface SideState {

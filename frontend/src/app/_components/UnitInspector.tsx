@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import type { Side, Unit } from "@/lib/types";
+import type { Item, Side, Unit } from "@/lib/types";
 import { capitalize, elementColor, elementIcon, pct, statusChips } from "@/lib/game";
 import { Chips } from "./Chips";
 
@@ -13,6 +13,30 @@ function MiniChips({ items, tone }: { items: string[]; tone: string }) {
           {t}
         </span>
       ))}
+    </div>
+  );
+}
+
+/** Structured items: a weapon shows its element+power; gear shows the tags it grants. */
+function ItemList({ items }: { items: Item[] }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      {items.map((it, i) => {
+        const isWeapon = it.kind === "weapon" && it.element;
+        const detail = isWeapon
+          ? `${capitalize(it.element!)} ${it.power ?? ""}`.trim()
+          : it.tags.length
+            ? `→ ${it.tags.map(capitalize).join(", ")}`
+            : "trinket";
+        return (
+          <div key={i} className="flex items-baseline gap-1.5">
+            <span className={isWeapon ? elementColor(it.element!) : "text-amber-300"}>
+              {isWeapon ? elementIcon(it.element!) : "🛡"} {capitalize(it.name)}
+            </span>
+            <span className="text-[10px] text-zinc-500">{detail}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -77,7 +101,7 @@ export function UnitInspector({ unit, side }: { unit: Unit; side: Side }) {
         )}
         {unit.items.length > 0 && (
           <Field label="Items">
-            <MiniChips items={unit.items} tone="bg-amber-900/40 text-amber-300" />
+            <ItemList items={unit.items} />
           </Field>
         )}
         {mods.length > 0 && (

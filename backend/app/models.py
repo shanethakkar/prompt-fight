@@ -233,7 +233,7 @@ class RosterUnit(BaseModel):
     max_hp: int
     weapon: Weapon | None = None
     tags: list[str] = Field(default_factory=list)
-    items: list[str] = Field(default_factory=list)
+    items: list[Item] = Field(default_factory=list)
 
 
 class Roster(BaseModel):
@@ -345,6 +345,21 @@ class Weapon(BaseModel):
     power: int = 4
 
 
+class Item(BaseModel):
+    """A piece of equipped gear, recorded on a unit for display + inspection.
+    Equipping also fans out into the unit's ``weapon`` / ``tags`` (which drive
+    combat) — this is the rich record of *what* was equipped (P1 items pass).
+    ``kind`` is inferred server-side: a weapon has element+power; gear grants tags."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    kind: Literal["weapon", "gear"] = "gear"
+    element: Element | None = None
+    power: int | None = None
+    tags: list[str] = Field(default_factory=list)
+
+
 class Unit(BaseModel):
     """One combatant on the battlefield. Each side has a ``stickman`` (its core —
     if it dies, that side loses) plus zero or more summoned ``entities``. All
@@ -368,7 +383,7 @@ class Unit(BaseModel):
     # descriptors (e.g. "undead", "kryptonian") that P3.3 matchups will read.
     weapon: Weapon | None = None
     tags: list[str] = Field(default_factory=list)
-    items: list[str] = Field(default_factory=list)
+    items: list[Item] = Field(default_factory=list)
 
 
 class SideState(BaseModel):
